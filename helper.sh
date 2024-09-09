@@ -1,0 +1,1 @@
+docker run -it --rm -p 8010:8000 -v "C:\Users\ZeinetSSE\Downloads\kigoc_services\ML\server.py:/workspace/losses-server/server.py" -v "C:\Users\ZeinetSSE\Downloads\kigoc_services\ML\inference.py:/workspace/losses-server/inference.py"fpcloud/ml:latest python3 -m uvicorn server:app --host 0.0.0.0 --port 8000
