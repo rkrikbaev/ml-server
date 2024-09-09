@@ -23,12 +23,17 @@ def init(model_name, model_type, model_version):
 
     normalizations = dict()
     model = None
-    
+
     file_name = 'normalization.json'
     model_path = os.path.join('models', model_name, model_type, model_version, file_name).lower()
     logger.debug(f'Model normalization path: {model_path}')
+
     if os.path.exists(model_path):
-        normalizations = json.loads(model_path)
+        try:
+            with open(model_path, 'r') as f:
+                normalizations = json.load(f)  # Use json.load() to load JSON from a file
+        except json.JSONDecodeError as e:
+            logger.error(f"Error decoding JSON from {model_path}: {e}")
     else:
         logger.warning('Normalization not exist')
 
