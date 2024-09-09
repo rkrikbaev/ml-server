@@ -202,20 +202,39 @@ def predict(
 def extract_from_fp_record(data: Dict[str, Any], param) -> Tuple[str, str, np.ndarray, np.ndarray]:
     # Convert FP name to ids
     # region, line_id = record_dict['metadata']['region'], record_dict['metadata']['object']
-
-    # Get timestamps
+    
     logger.debug(f'dsts: {data}')
     logger.debug(f'param: {param}')
+
+    d = data.get('model_input')
     
-    values = data['dataset'][param]
+    values = d.get(param,[])
+
+    # logger.debug(f'Values: {values}')
+
+    if len(values) > 0:
+        logger.debug(f'dataset values: {values}')
+    else:
+        logger.debug('Zero len of dataset')
+        return [], []
+
+    # Get timestamps
     timestamps = np.array([ts for ts, _ in values], dtype=int)
+    
+    # Проверка на наличие NaN
+    has_nan = np.any(np.isnan(timestamps))
 
     # Get y
-    values = data['dataset'][param]
     y = np.array([val for _, val in values], dtype=float)
 
-    return y, timestamps
+    # Проверка на наличие NaN
+    has_nan = np.any(np.isnan(y))
 
+    if has_nan:
+        logger.info('NaN values in data')
+        return [], []
+
+    return y, timestamps
 
 if __name__ == '__main__':
     # Check features shape

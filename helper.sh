@@ -1,0 +1,1 @@
+docker run -it --name ml0 --restart always -p 8000 -m 1024m -v .\Downloads\kegoc_services\ml\server:/server fpcloud/ml:0.0.1 python3 -m uvicorn server:app --host 0.0.0.0 --port 8000

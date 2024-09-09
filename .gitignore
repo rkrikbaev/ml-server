@@ -1,0 +1,7 @@
+.venv
+**/__pycache__/
+debug/
+models_archive/
+**/*.log
+**/*.png
+**/*.pdf
