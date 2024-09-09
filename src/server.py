@@ -2,6 +2,7 @@
 import logging
 import os
 import datetime
+import json
 
 logging.basicConfig(
     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
@@ -23,11 +24,11 @@ def init(model_name, model_type, model_version):
     normalizations = dict()
     model = None
     
-    file_name = 'normalization.joblib'
+    file_name = 'normalization.json'
     model_path = os.path.join('models', model_name, model_type, model_version, file_name).lower()
     logger.debug(f'Model normalization path: {model_path}')
     if os.path.exists(model_path):
-        normalizations = joblib.load(model_path)
+        normalizations = json.loads(model_path)
     else:
         logger.warning('Normalization not exist')
 
