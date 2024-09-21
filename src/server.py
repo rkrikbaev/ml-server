@@ -25,7 +25,7 @@ def init():
     model = None
 
     file_name = 'normalization.json'
-    model_path = os.path.join('models', file_name).lower()
+    model_path = os.path.join('/workspace/server/model', file_name).lower()
 
     logger.debug(f'Model normalization path: {model_path}')
 
@@ -39,7 +39,7 @@ def init():
         logger.warning('Normalization not exist')
 
     file_name = 'model.joblib'
-    model_path = os.path.join('models', file_name).lower()
+    model_path = os.path.join('/workspace/server/model', file_name).lower()
 
     logger.debug(f'Model path: {model_path}')
     
