@@ -19,13 +19,13 @@ from inference import extract_from_fp_record, predict, get_valid_filename, MES_T
 
 app = FastAPI()
 
-def init(model_name, model_type, model_version):
+def init():
 
     normalizations = dict()
     model = None
 
     file_name = 'normalization.json'
-    model_path = os.path.join('models', model_name, file_name).lower()
+    model_path = os.path.join('models', file_name).lower()
 
     logger.debug(f'Model normalization path: {model_path}')
 
@@ -39,7 +39,7 @@ def init(model_name, model_type, model_version):
         logger.warning('Normalization not exist')
 
     file_name = 'model.joblib'
-    model_path = os.path.join('models', model_name, file_name).lower()
+    model_path = os.path.join('models', file_name).lower()
 
     logger.debug(f'Model path: {model_path}')
     
@@ -98,7 +98,7 @@ async def process_data(request: Request):
 
     if task_status == "QUEUED":
 
-        model, normalization = init(model_name, model_type, model_version)
+        model, normalization = init()
 
         logger.debug(model)
         
