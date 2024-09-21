@@ -25,7 +25,8 @@ def init(model_name, model_type, model_version):
     model = None
 
     file_name = 'normalization.json'
-    model_path = os.path.join('models', model_name, model_type, model_version, file_name).lower()
+    model_path = os.path.join('models', model_name, file_name).lower()
+
     logger.debug(f'Model normalization path: {model_path}')
 
     if os.path.exists(model_path):
@@ -38,8 +39,10 @@ def init(model_name, model_type, model_version):
         logger.warning('Normalization not exist')
 
     file_name = 'model.joblib'
-    model_path = os.path.join('models', model_name, model_type, model_version, file_name).lower()
+    model_path = os.path.join('models', model_name, file_name).lower()
+
     logger.debug(f'Model path: {model_path}')
+    
     if os.path.exists(model_path):
         model = joblib.load(model_path)
     else:
@@ -65,7 +68,7 @@ async def process_data(request: Request):
     model_input_range = None
     model_input_granularity = None
     task_id = None
-    task_message = 'The task over successfully'
+    task_message = ''
     r = dict()
 
     try:
@@ -79,9 +82,10 @@ async def process_data(request: Request):
         model_output_range = d["model_output_range"]
         task_id = d["task_id"]
         task_status = d["task_status"]
+        task_message = f'Run task [{task_id}]'
     except KeyError as e:
         task_status = "FAILED"
-        task_message = 'Fail to parse income JSON'
+        task_message = f'Fail to parse income JSON'
         logger.error(e)
     finally:
         r = {
@@ -102,7 +106,7 @@ async def process_data(request: Request):
 
         if len(y) == 0:
             r['task_status'] = 'FAILED'
-            r['task_message'] = 'Data in the dataset is incorrect'
+            r['task_message'] = f'task {task_id} Data in the dataset is incorrect'
             return r
         if not model:
             preds = y[-model_output_range:]
