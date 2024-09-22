@@ -59,9 +59,7 @@ async def process_data(request: Request):
     [d] = await request.json()
     logger.debug(f"data as dict: {d}")
 
-    task_status = None
     model_name = None
-    model_object = None
     model_type = None
     model_version = None
     model_target = None
@@ -69,11 +67,12 @@ async def process_data(request: Request):
     model_input_granularity = None
     task_id = None
     task_message = ''
+    task_status = None
+
     r = dict()
 
     try:
         model_name = d["model_name"]
-        model_object = d["model_object"]
         model_type = d["model_type"]
         model_version = d["model_version"]
         model_target = d["model_target"]
@@ -82,20 +81,20 @@ async def process_data(request: Request):
         model_output_range = d["model_output_range"]
         task_id = d["task_id"]
         task_message = f'Run task [{task_id}]'
+        task_status = d["task_status"]
     except KeyError as e:
         task_status = "FAILED"
         task_message = f'Fail to parse income JSON'
         logger.error(e)
     finally:
         r = {
-            'task_status': task_status,
             'task_id': task_id,
-            'model_object': model_object,
+            'task_status': task_status,
             'task_message': task_message,
             'task_result': []
         }
 
-    if task_status == "QUEUED":
+    if task_status == "DEPLOY":
 
         model, normalization = init()
 
