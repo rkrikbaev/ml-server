@@ -94,42 +94,40 @@ async def process_data(request: Request):
             'task_result': []
         }
 
-    if task_status == "DEPLOY":
+    model, normalization = init()
 
-        model, normalization = init()
+    logger.debug(model)
+    
+    y, timestamps = extract_from_fp_record(d, model_target)
 
-        logger.debug(model)
-        
-        y, timestamps = extract_from_fp_record(d, model_target)
+    if len(y) == 0:
+        r['task_status'] = 'FAILED'
+        r['task_message'] = f'task {task_id} Data in the dataset is incorrect'
+        return r
+    if not model:
+        preds = y[-model_output_range:]
+        r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}. The result is income dataset applied on output time range'
+    else:
+        preds = predict(
+            y=y,
+            timestamps=timestamps,
+            model=model,
+            div=normalization['div'],
+            sub=normalization['sub'],
+            n_predict_steps=model_input_range
+        )[0]
 
-        if len(y) == 0:
-            r['task_status'] = 'FAILED'
-            r['task_message'] = f'task {task_id} Data in the dataset is incorrect'
-            return r
-        if not model:
-            preds = y[-model_output_range:]
-            r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}. The result is income dataset applied on output time range'
-        else:
-            preds = predict(
-                y=y,
-                timestamps=timestamps,
-                model=model,
-                div=normalization['div'],
-                sub=normalization['sub'],
-                n_predict_steps=model_input_range
-            )[0]
+    pred_timestamps = timestamps + model_input_range * model_input_granularity
 
-        pred_timestamps = timestamps + model_input_range * model_input_granularity
+    # Prepare response
+    result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]
 
-        # Prepare response
-        result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]
+    logger.debug(f"len(result): {len(result)}")
 
-        logger.debug(f"len(result): {len(result)}")
+    r['task_status'] = 'SUCCESS'
+    r['task_result']= result
 
-        r['task_status'] = 'SUCCESS'
-        r['task_result']= result
-
-        logger.debug(f"Output: {r}")
+    logger.debug(f"Output: {r}")
 
     return r
 
