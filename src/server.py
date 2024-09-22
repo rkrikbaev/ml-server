@@ -81,7 +81,6 @@ async def process_data(request: Request):
         model_input_granularity = d["model_input_granularity"]
         model_output_range = d["model_output_range"]
         task_id = d["task_id"]
-        task_status = d["task_status"]
         task_message = f'Run task [{task_id}]'
     except KeyError as e:
         task_status = "FAILED"
