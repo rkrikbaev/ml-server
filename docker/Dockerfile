@@ -19,5 +19,7 @@ RUN pip install -r requirements.txt
 # Add repo folder to PYTHONPATH
 ENV PYTHONPATH="/workspace/server:${PYTHONPATH}"
 
-# Copy repo files
+EXPOSE 8000
+
+# Copy files
 COPY . .
