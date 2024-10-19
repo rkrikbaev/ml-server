@@ -19,13 +19,14 @@ from inference import extract_from_fp_record, predict, get_valid_filename, MES_T
 
 app = FastAPI()
 
-def init(model_name, model_type, model_version):
+def init():
 
     normalizations = dict()
     model = None
 
     file_name = 'normalization.json'
-    model_path = os.path.join('models', model_name, model_type, model_version, file_name).lower()
+    model_path = os.path.join('/workspace/server/model', file_name).lower()
+
     logger.debug(f'Model normalization path: {model_path}')
 
     if os.path.exists(model_path):
@@ -38,8 +39,10 @@ def init(model_name, model_type, model_version):
         logger.warning('Normalization not exist')
 
     file_name = 'model.joblib'
-    model_path = os.path.join('models', model_name, model_type, model_version, file_name).lower()
+    model_path = os.path.join('/workspace/server/model', file_name).lower()
+
     logger.debug(f'Model path: {model_path}')
+    
     if os.path.exists(model_path):
         model = joblib.load(model_path)
     else:
@@ -56,21 +59,20 @@ async def process_data(request: Request):
     [d] = await request.json()
     logger.debug(f"data as dict: {d}")
 
-    task_status = None
     model_name = None
-    model_object = None
     model_type = None
     model_version = None
     model_target = None
     model_input_range = None
     model_input_granularity = None
     task_id = None
-    task_message = 'The task over successfully'
+    task_message = ''
+    task_status = None
+
     r = dict()
 
     try:
         model_name = d["model_name"]
-        model_object = d["model_object"]
         model_type = d["model_type"]
         model_version = d["model_version"]
         model_target = d["model_target"]
@@ -78,56 +80,54 @@ async def process_data(request: Request):
         model_input_granularity = d["model_input_granularity"]
         model_output_range = d["model_output_range"]
         task_id = d["task_id"]
+        task_message = f'Run task [{task_id}]'
         task_status = d["task_status"]
     except KeyError as e:
         task_status = "FAILED"
-        task_message = 'Fail to parse income JSON'
+        task_message = f'Fail to parse income JSON'
         logger.error(e)
     finally:
         r = {
-            'task_status': task_status,
             'task_id': task_id,
-            'model_object': model_object,
+            'task_status': task_status,
             'task_message': task_message,
             'task_result': []
         }
 
-    if task_status == "QUEUED":
+    model, normalization = init()
 
-        model, normalization = init(model_name, model_type, model_version)
+    logger.debug(model)
+    
+    y, timestamps = extract_from_fp_record(d, model_target)
 
-        logger.debug(model)
-        
-        y, timestamps = extract_from_fp_record(d, model_target)
+    if len(y) == 0:
+        r['task_status'] = 'FAILED'
+        r['task_message'] = f'task {task_id} Data in the dataset is incorrect'
+        return r
+    if not model:
+        preds = y[-model_output_range:]
+        r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}'
+    else:
+        preds = predict(
+            y=y,
+            timestamps=timestamps,
+            model=model,
+            div=normalization['div'],
+            sub=normalization['sub'],
+            n_predict_steps=model_input_range
+        )[0]
 
-        if len(y) == 0:
-            r['task_status'] = 'FAILED'
-            r['task_message'] = 'Data in the dataset is incorrect'
-            return r
-        if not model:
-            preds = y[-model_output_range:]
-            r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}. The result is income dataset applied on output time range'
-        else:
-            preds = predict(
-                y=y,
-                timestamps=timestamps,
-                model=model,
-                div=normalization['div'],
-                sub=normalization['sub'],
-                n_predict_steps=model_input_range
-            )[0]
+    pred_timestamps = timestamps + model_input_range * model_input_granularity
 
-        pred_timestamps = timestamps + model_input_range * model_input_granularity
+    # Prepare response
+    result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]
 
-        # Prepare response
-        result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]
+    logger.debug(f"len(result): {len(result)}")
 
-        logger.debug(f"len(result): {len(result)}")
+    r['task_status'] = 'SUCCESS'
+    r['task_result']= result
 
-        r['task_status'] = 'SUCCESS'
-        r['task_result']= result
-
-        logger.debug(f"Output: {r}")
+    logger.debug(f"Output: {r}")
 
     return r
 
