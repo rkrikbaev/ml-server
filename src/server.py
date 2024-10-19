@@ -106,7 +106,7 @@ async def process_data(request: Request):
         return r
     if not model:
         preds = y[-model_output_range:]
-        r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}. The result is income dataset applied on output time range'
+        r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}'
     else:
         preds = predict(
             y=y,
