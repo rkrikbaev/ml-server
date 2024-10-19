@@ -5,3 +5,4 @@ models_archive/
 **/*.log
 **/*.png
 **/*.pdf
+.DS_Store
