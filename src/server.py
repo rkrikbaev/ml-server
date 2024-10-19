@@ -3,6 +3,8 @@ import logging
 import os
 import datetime
 import json
+import http
+import environ
 
 logging.basicConfig(
     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
@@ -10,6 +12,15 @@ logging.basicConfig(
     level=os.environ.get('LOGLEVEL', 'DEBUG'),
 )
 logger = logging.getLogger(__file__)
+
+# Read environment variables
+env = environ.Env()
+environ.Env.read_env()
+
+# Example of reading environment variables
+model_name = env('MODEL_NAME')
+model_type = env('MODEL_TYPE')
+model_version = env('MODEL_VERSION')
 
 import uvicorn
 import joblib
@@ -59,12 +70,8 @@ async def process_data(request: Request):
     [d] = await request.json()
     logger.debug(f"data as dict: {d}")
 
-    model_name = None
-    model_type = None
-    model_version = None
-    model_target = None
-    model_input_range = None
-    model_input_granularity = None
+    period = None   # number of timestamps to predict
+    step = None     # how many seconds between timestamps
     task_id = None
     task_message = ''
     task_status = None
@@ -72,20 +79,16 @@ async def process_data(request: Request):
     r = dict()
 
     try:
-        model_name = d["model_name"]
-        model_type = d["model_type"]
-        model_version = d["model_version"]
-        model_target = d["model_target"]
-        model_input_range = d["model_input_range"]
-        model_input_granularity = d["model_input_granularity"]
-        model_output_range = d["model_output_range"]
+        step = d["step"]
+        period = d["period"]
         task_id = d["task_id"]
         task_message = f'Run task [{task_id}]'
         task_status = d["task_status"]
     except KeyError as e:
         task_status = "FAILED"
-        task_message = f'Fail to parse income JSON'
+        task_message = f'Fail to parse incoming JSON object: {e}'
         logger.error(e)
+        raise http.HTTPException(status_code=400, detail=task_message)
     finally:
         r = {
             'task_id': task_id,
@@ -97,15 +100,22 @@ async def process_data(request: Request):
     model, normalization = init()
 
     logger.debug(model)
+    try:
+        y, timestamps = extract_from_fp_record(d)
+    except Exception as e:
+        r['task_status'] = 'FAILED'
+        r['task_message'] = f'task {task_id} Fail to extract data from income JSON'
+        logger.error(e)
+        return r
     
-    y, timestamps = extract_from_fp_record(d, model_target)
+    input_range = len(y) # number of elements in the dataset
 
     if len(y) == 0:
         r['task_status'] = 'FAILED'
         r['task_message'] = f'task {task_id} Data in the dataset is incorrect'
         return r
     if not model:
-        preds = y[-model_output_range:]
+        preds = y[-period:]
         r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}'
     else:
         preds = predict(
@@ -114,10 +124,10 @@ async def process_data(request: Request):
             model=model,
             div=normalization['div'],
             sub=normalization['sub'],
-            n_predict_steps=model_input_range
+            n_predict_steps=input_range
         )[0]
 
-    pred_timestamps = timestamps + model_input_range * model_input_granularity
+    pred_timestamps = timestamps + input_range * step
 
     # Prepare response
     result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]

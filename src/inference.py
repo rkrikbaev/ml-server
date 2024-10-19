@@ -199,16 +199,19 @@ def predict(
     return y_pred
 
 
-def extract_from_fp_record(data: Dict[str, Any], param) -> Tuple[str, str, np.ndarray, np.ndarray]:
+def extract_from_fp_record(data: list, param) -> Tuple[str, str, np.ndarray, np.ndarray]:
     # Convert FP name to ids
     # region, line_id = record_dict['metadata']['region'], record_dict['metadata']['object']
     
-    logger.debug(f'dsts: {data}')
-    logger.debug(f'param: {param}')
+    logger.debug(f'data: {data}')
+    # logger.debug(f'param: {param}')
 
-    d = data.get('model_input')
+    if not isinstance(data, list):
+        raise ValueError('Data is not a list')
     
-    values = d.get(param,[])
+    values = data[0]
+    
+    # values = d.get(param,[])
 
     # logger.debug(f'Values: {values}')
 
@@ -216,7 +219,7 @@ def extract_from_fp_record(data: Dict[str, Any], param) -> Tuple[str, str, np.nd
         logger.debug(f'dataset values: {values}')
     else:
         logger.debug('Zero len of dataset')
-        return [], []
+        raise ValueError('Zero len of dataset')
 
     # Get timestamps
     timestamps = np.array([ts for ts, _ in values], dtype=int)
@@ -232,7 +235,7 @@ def extract_from_fp_record(data: Dict[str, Any], param) -> Tuple[str, str, np.nd
 
     if has_nan:
         logger.info('NaN values in data')
-        return [], []
+        raise ValueError('NaN values in data')
 
     return y, timestamps
 
