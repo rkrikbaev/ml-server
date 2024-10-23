@@ -5,6 +5,8 @@ import datetime
 import json
 import http
 import environ
+import http
+import environ
 
 logging.basicConfig(
     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
@@ -12,6 +14,15 @@ logging.basicConfig(
     level=os.environ.get('LOGLEVEL', 'DEBUG'),
 )
 logger = logging.getLogger(__file__)
+
+# Read environment variables
+env = environ.Env()
+environ.Env.read_env()
+
+# Example of reading environment variables
+model_name = env('MODEL_NAME')
+model_type = env('MODEL_TYPE')
+model_version = env('MODEL_VERSION')
 
 # Read environment variables
 env = environ.Env()
@@ -72,6 +83,8 @@ async def process_data(request: Request):
 
     period = None   # number of timestamps to predict
     step = None     # how many seconds between timestamps
+    period = None   # number of timestamps to predict
+    step = None     # how many seconds between timestamps
     task_id = None
     task_message = ''
     task_status = None
@@ -87,7 +100,9 @@ async def process_data(request: Request):
     except KeyError as e:
         task_status = "FAILED"
         task_message = f'Fail to parse incoming JSON object: {e}'
+        task_message = f'Fail to parse incoming JSON object: {e}'
         logger.error(e)
+        raise http.HTTPException(status_code=400, detail=task_message)
         raise http.HTTPException(status_code=400, detail=task_message)
     finally:
         r = {
@@ -109,12 +124,22 @@ async def process_data(request: Request):
         return r
     
     input_range = len(y) # number of elements in the dataset
+    try:
+        y, timestamps = extract_from_fp_record(d)
+    except Exception as e:
+        r['task_status'] = 'FAILED'
+        r['task_message'] = f'task {task_id} Fail to extract data from income JSON'
+        logger.error(e)
+        return r
+    
+    input_range = len(y) # number of elements in the dataset
 
     if len(y) == 0:
         r['task_status'] = 'FAILED'
         r['task_message'] = f'task {task_id} Data in the dataset is incorrect'
         return r
     if not model:
+        preds = y[-period:]
         preds = y[-period:]
         r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}'
     else:
@@ -127,6 +152,7 @@ async def process_data(request: Request):
             n_predict_steps=input_range
         )[0]
 
+    pred_timestamps = timestamps + input_range * step
     pred_timestamps = timestamps + input_range * step
 
     # Prepare response
