@@ -150,6 +150,7 @@ async def process_data(request: Request):
             div=normalization['div'],
             sub=normalization['sub'],
             n_predict_steps=input_range
+            n_predict_steps=input_range
         )[0]
 
     pred_timestamps = timestamps + input_range * step
