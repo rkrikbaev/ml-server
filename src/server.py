@@ -4,7 +4,7 @@ import os
 import datetime
 import json
 import http
-#import environ
+# import environ
 import uvicorn
 import joblib
 from fastapi import FastAPI, Request
@@ -19,13 +19,13 @@ logging.basicConfig(
 logger = logging.getLogger(__file__)
 
 # Read environment variables
-#env = environ.Env()
-#environ.Env.read_env()
+# env = environ.Env()
+# environ.Env.read_env()
 
 # Example of reading environment variables
-#model_name = env('MODEL_NAME')
-#model_type = env('MODEL_TYPE')
-#model_version = env('MODEL_VERSION')
+# model_name = env('MODEL_NAME')
+# model_type = env('MODEL_TYPE')
+# model_version = env('MODEL_VERSION')
 
 app = FastAPI()
 
@@ -123,7 +123,7 @@ async def process_data(request: Request):
         return r
     if not model:
         preds = y[-period:]
-        r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}'
+        r['task_message']=f'Not found the model by name'
     else:
         preds = predict(
             y=y,

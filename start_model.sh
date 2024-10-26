@@ -4,10 +4,12 @@ port=$1
 input=$2
 
 # Path to a model
-path="$PWD/local/models/$input"
+path="/tmp/local/models/$input"
 
 # Get the version
 version="${input##*/}"
+
+image=rkrikbaev/ml:0.0.2
 
 # Combain name of container, replace all / on _
 name="${input%/*}"
@@ -21,4 +23,4 @@ echo "Last segment: $version"
 echo "Container name: $fullname"
 
 # Start docker container
-docker run -itd --name "$fullname" -p $port:8000 -v "$path:/workspace/server/model" -v "/DATASET/project/ml-services/git/ml-server/src:/workspace/server" 10.210.2.103:8082/fpcloud/ml:latest python3 -m uvicorn server:app --host 0.0.0.0 --port 8000
+docker run -itd --name "$fullname" -p $port:8000 -v "$path:/workspace/server/model" -v "/tmp/src:/workspace/server" $image python3 -m uvicorn server:app --host 0.0.0.0 --port 8000
