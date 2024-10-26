@@ -5,8 +5,11 @@ import datetime
 import json
 import http
 import environ
-import http
-import environ
+import uvicorn
+import joblib
+from fastapi import FastAPI, Request
+
+from inference import extract_from_fp_record, predict, get_valid_filename, MES_TO_REGION
 
 logging.basicConfig(
     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
@@ -24,21 +27,6 @@ model_name = env('MODEL_NAME')
 model_type = env('MODEL_TYPE')
 model_version = env('MODEL_VERSION')
 
-# Read environment variables
-env = environ.Env()
-environ.Env.read_env()
-
-# Example of reading environment variables
-model_name = env('MODEL_NAME')
-model_type = env('MODEL_TYPE')
-model_version = env('MODEL_VERSION')
-
-import uvicorn
-import joblib
-from fastapi import FastAPI, Request
-
-from inference import extract_from_fp_record, predict, get_valid_filename, MES_TO_REGION
-
 app = FastAPI()
 
 def init():
@@ -47,7 +35,7 @@ def init():
     model = None
 
     file_name = 'normalization.json'
-    model_path = os.path.join('/workspace/server/model', file_name).lower()
+    model_path = os.path.join('/workspace/model', file_name).lower()
 
     logger.debug(f'Model normalization path: {model_path}')
 
@@ -61,7 +49,7 @@ def init():
         logger.warning('Normalization not exist')
 
     file_name = 'model.joblib'
-    model_path = os.path.join('/workspace/server/model', file_name).lower()
+    model_path = os.path.join('/workspace/model', file_name).lower()
 
     logger.debug(f'Model path: {model_path}')
     
@@ -92,8 +80,8 @@ async def process_data(request: Request):
     r = dict()
 
     try:
-        step = d["model_input_granularity"]
-        period = d["model_output_range"]
+        step = d["step"] #model_input_granularity
+        period = d["period"]  #model_output_range
         task_id = d["task_id"]
         task_message = f'Run task [{task_id}]'
         task_status = d["task_status"]
