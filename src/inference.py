@@ -199,21 +199,7 @@ def predict(
     return y_pred
 
 
-def extract_from_fp_record(data: list, param) -> Tuple[str, str, np.ndarray, np.ndarray]:
-    # Convert FP name to ids
-    # region, line_id = record_dict['metadata']['region'], record_dict['metadata']['object']
-    
-    logger.debug(f'data: {data}')
-    # logger.debug(f'param: {param}')
-
-    if not isinstance(data, list):
-        raise ValueError('Data is not a list')
-    
-    values = data[0]
-    
-    # values = d.get(param,[])
-
-    # logger.debug(f'Values: {values}')
+def extract_data(values: list) -> Tuple[str, str, np.ndarray, np.ndarray]:
 
     if len(values) > 0:
         logger.debug(f'dataset values: {values}')

@@ -4,12 +4,11 @@ import os
 import datetime
 import json
 import http
-# import environ
 import uvicorn
 import joblib
 from fastapi import FastAPI, Request
 
-from inference import extract_from_fp_record, predict, get_valid_filename, MES_TO_REGION
+from inference import extract_data, predict, get_valid_filename, MES_TO_REGION
 
 logging.basicConfig(
     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
@@ -17,15 +16,6 @@ logging.basicConfig(
     level=os.environ.get('LOGLEVEL', 'DEBUG'),
 )
 logger = logging.getLogger(__file__)
-
-# Read environment variables
-# env = environ.Env()
-# environ.Env.read_env()
-
-# Example of reading environment variables
-# model_name = env('MODEL_NAME')
-# model_type = env('MODEL_TYPE')
-# model_version = env('MODEL_VERSION')
 
 app = FastAPI()
 
@@ -67,7 +57,7 @@ def init():
 async def process_data(request: Request):
 
     [d] = await request.json()
-    print(f"data as dict: {d}")
+    logger.debug(f"data as dict: {d}")
 
     period = None   # number of timestamps to predict
     step = None     # how many seconds between timestamps
@@ -97,44 +87,41 @@ async def process_data(request: Request):
 
     model, normalization = init()
 
-    logger.debug(model)
-    try:
-        y, timestamps = extract_from_fp_record(d)
-    except Exception as e:
-        r['task_status'] = 'FAILED'
-        r['task_message'] = f'task {task_id} Fail to extract data from income JSON'
-        logger.error(e)
-        return r
+    y, timestamps = [], []
     
-    input_range = len(y) # number of elements in the dataset
-    try:
-        y, timestamps = extract_from_fp_record(d)
-    except Exception as e:
-        r['task_status'] = 'FAILED'
-        r['task_message'] = f'task {task_id} Fail to extract data from income JSON'
-        logger.error(e)
-        return r
+    for i in range(len(d['task_input'])):
+        try:
+            y_, timestamps_ = extract_data(d['task_input'][i])
+            y.append(y_)
+            timestamps.append(timestamps_)
+        except Exception as e:
+            r['task_status'] = 'FAILED'
+            r['task_message'] = f'task {task_id} Fail to extract data from income JSON'
+            logger.error(e)
+            return r
     
-    input_range = len(y) # number of elements in the dataset
-
-    if len(y) == 0:
+    if len(y) != len(timestamps):
         r['task_status'] = 'FAILED'
         r['task_message'] = f'task {task_id} Data in the dataset is incorrect'
         return r
+    
+    input_range = len(y[0]) # number of elements in the dataset
+    logger.debug(f"len(y): {len(y)}")
+
     if not model:
         preds = y[-period:]
         r['task_message']=f'Not found the model by name'
     else:
         preds = predict(
-            y=y,
-            timestamps=timestamps,
+            y=y[0],
+            timestamps=timestamps[0],
             model=model,
             div=normalization['div'],
             sub=normalization['sub'],
             n_predict_steps=input_range
         )[0]
 
-    pred_timestamps = timestamps + input_range * step
+    pred_timestamps = timestamps[0] + input_range * step
 
     # Prepare response
     result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]
