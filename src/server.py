@@ -4,7 +4,7 @@ import os
 import datetime
 import json
 import http
-import environ
+#import environ
 import uvicorn
 import joblib
 from fastapi import FastAPI, Request
@@ -19,13 +19,13 @@ logging.basicConfig(
 logger = logging.getLogger(__file__)
 
 # Read environment variables
-env = environ.Env()
-environ.Env.read_env()
+#env = environ.Env()
+#environ.Env.read_env()
 
 # Example of reading environment variables
-model_name = env('MODEL_NAME')
-model_type = env('MODEL_TYPE')
-model_version = env('MODEL_VERSION')
+#model_name = env('MODEL_NAME')
+#model_type = env('MODEL_TYPE')
+#model_version = env('MODEL_VERSION')
 
 app = FastAPI()
 
@@ -67,10 +67,8 @@ def init():
 async def process_data(request: Request):
 
     [d] = await request.json()
-    logger.debug(f"data as dict: {d}")
+    print(f"data as dict: {d}")
 
-    period = None   # number of timestamps to predict
-    step = None     # how many seconds between timestamps
     period = None   # number of timestamps to predict
     step = None     # how many seconds between timestamps
     task_id = None
@@ -84,13 +82,10 @@ async def process_data(request: Request):
         period = d["period"]  #model_output_range
         task_id = d["task_id"]
         task_message = f'Run task [{task_id}]'
-        task_status = d["task_status"]
     except KeyError as e:
         task_status = "FAILED"
         task_message = f'Fail to parse incoming JSON object: {e}'
-        task_message = f'Fail to parse incoming JSON object: {e}'
         logger.error(e)
-        raise http.HTTPException(status_code=400, detail=task_message)
         raise http.HTTPException(status_code=400, detail=task_message)
     finally:
         r = {
@@ -128,7 +123,6 @@ async def process_data(request: Request):
         return r
     if not model:
         preds = y[-period:]
-        preds = y[-period:]
         r['task_message']=f'Not found the model by name: {model_name}, type: {model_type} and version: {model_version}'
     else:
         preds = predict(
@@ -138,10 +132,8 @@ async def process_data(request: Request):
             div=normalization['div'],
             sub=normalization['sub'],
             n_predict_steps=input_range
-            n_predict_steps=input_range
         )[0]
 
-    pred_timestamps = timestamps + input_range * step
     pred_timestamps = timestamps + input_range * step
 
     # Prepare response
