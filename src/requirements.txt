@@ -8,3 +8,4 @@ scikit-learn==1.5.1
 uvicorn==0.28.1
 requests==2.31.0
 tqdm==4.66.2
+environ==1.0.0
