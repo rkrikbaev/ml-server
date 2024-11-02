@@ -1,0 +1,10 @@
+.gitattributes
+.gitconfig
+.gitignore
+docker-compose.yml
+Dockerfile
+helper.sh
+README.md
+models/
+Makefile
+test/

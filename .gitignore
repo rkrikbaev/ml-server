@@ -1,0 +1,11 @@
+.venv
+**/__pycache__/
+debug/
+models_archive/
+**/*.log
+**/*.png
+**/*.pdf
+.DS_Store
+fp.screen.model_control/api_client.erl
+fp.screen.model_control/bms_service.erl
+fp.screen.model_control/calculation.erl
