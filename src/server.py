@@ -55,9 +55,9 @@ def init():
 
 @app.post("/predict/")
 async def process_data(request: Request):
-
+    logger.info("Request...")
     [d] = await request.json()
-    logger.debug(f"data as dict: {d}")
+    logger.info(f"Request data: {d}")
 
     period = None   # number of timestamps to predict
     step = None     # how many seconds between timestamps
@@ -88,10 +88,10 @@ async def process_data(request: Request):
     model, normalization = init()
 
     y, timestamps = [], []
-    
     for i in range(len(d['task_input'])):
         try:
             y_, timestamps_ = extract_data(d['task_input'][i])
+            logger.info(f"y: {y}, ts: {timestamps}")
             y.append(y_)
             timestamps.append(timestamps_)
         except Exception as e:
@@ -106,10 +106,9 @@ async def process_data(request: Request):
         return r
     
     input_range = len(y[0]) # number of elements in the dataset
-    logger.debug(f"len(y): {len(y)}")
 
     if not model:
-        preds = y[-period:]
+        preds = y[0][-period:]
         r['task_message']=f'Not found the model by name'
     else:
         preds = predict(
@@ -120,18 +119,20 @@ async def process_data(request: Request):
             sub=normalization['sub'],
             n_predict_steps=input_range
         )[0]
-
-    pred_timestamps = timestamps[0] + input_range * step
-
+    logger.info(preds)
+    # Construct pred_timestamps as a list
+    pred_timestamps = [timestamps[0][-1] + i * step for i in range(1,period+1)]
     # Prepare response
     result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]
+    #pred_timestamps = timestamps[0] + input_range * step
 
-    logger.debug(f"len(result): {len(result)}")
+    # Prepare response
+    #result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]
 
     r['task_status'] = 'SUCCESS'
     r['task_output']= result
 
-    logger.debug(f"Output: {r}")
+    logger.info(f"Output: {r}")
 
     return r
 
