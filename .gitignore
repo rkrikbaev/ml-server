@@ -6,6 +6,7 @@ models_archive/
 **/*.png
 **/*.pdf
 .DS_Store
+models/
 fp.screen.model_control/api_client.erl
 fp.screen.model_control/bms_service.erl
 fp.screen.model_control/calculation.erl

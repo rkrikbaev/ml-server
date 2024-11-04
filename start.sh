@@ -1,0 +1,17 @@
+/home/ds_engineer/ml-server-regions-consumption/start_model 18040 KAZ/@regions/Akmola/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18039 KAZ/@regions/KokshetayEU/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18038 KAZ/@regions/Karaganda/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18037 KAZ/@regions/KaragandyEU/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18036 KAZ/@regions/ZhezkazganEU/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18035 KAZ/@regions/SeverKazEU/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18034 KAZ/@regions/Kostanay/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18033 KAZ/@regions/Pavlodar/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18032 KAZ/@regions/Aktobe/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18031 KAZ/@regions/Altay/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18030 KAZ/@regions/Almaty/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18029 KAZ/@regions/UKO/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18026 KAZ/@regions/Zhambul/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18025 KAZ/@regions/Kyzylorda/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18024 KAZ/@regions/Atyrau/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18023 KAZ/@regions/ZKO/P/1.0
+/home/ds_engineer/ml-server-regions-consumption/start_model 18022 KAZ/@regions/Mangystau/P/1.0
