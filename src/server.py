@@ -71,15 +71,21 @@ async def process_data(request: Request):
         preds = y[0][-period:]
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
-        preds = predict(
-            y=y,
-            timestamps=timestamps,
-            model=model,
-            div=normalization['div'],
-            sub=normalization['sub'],
-            n_predict_steps=period,
-            step_granularity_s=step,
-        )[0]
+        try:
+            preds = predict(
+                y=y,
+                timestamps=timestamps,
+                model=model,
+                div=normalization['div'],
+                sub=normalization['sub'],
+                n_predict_steps=period,
+                step_granularity_s=step,
+            )[0]
+        except Exception as e:
+            r['task_status'] = 'ОШИБКА'
+            r['task_message'] = f'Ошибка вызова прогноза для задачи с идентификатором {task_id}'
+            logger.error(e)
+            return r
     logger.info(preds)
     # Construct pred_timestamps as a list
     pred_timestamps = [timestamps[0][-1] + i * step for i in range(1,period+1)]
