@@ -12,7 +12,7 @@ logger = logging.getLogger(__file__)
 import numpy as np
 from typing import List, Dict
 
-from utils import timestamps_to_calendar_features, load_model_and_normalization, interpolate_nan_1d
+from utils import timestamps_to_calendar_features, load_model_and_normalization
 
 
 def extract_features(
@@ -29,9 +29,6 @@ def extract_features(
     for y_, feature_name in zip(y, ['y', 'temperature']):
         # Normalize
         y_ = (y_ - sub[feature_name]) / div[feature_name]
-
-        # Interpolate nan values
-        y_ = interpolate_nan_1d(y_)
 
         # Truncate due to truncation during training
         y_ = y_[:-1]

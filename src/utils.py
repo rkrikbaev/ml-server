@@ -152,7 +152,6 @@ def timestamps_to_calendar_features(timestamps: List[int] | np.ndarray, n_predic
 
 
 def extract_data(values: list) -> Tuple[str, str, np.ndarray, np.ndarray]:
-
     if len(values) > 0:
         logger.debug(f'dataset values: {values}')
     else:
@@ -162,18 +161,17 @@ def extract_data(values: list) -> Tuple[str, str, np.ndarray, np.ndarray]:
     # Get timestamps
     timestamps = np.array([ts for ts, _ in values], dtype=int)
     
-    # Проверка на наличие NaN
+    # Assert no nans in timestamps
     has_nan = np.any(np.isnan(timestamps))
-
+    if has_nan:
+        logger.info('NaN values in timestamps')
+        raise ValueError('NaN values in timestamps')
+    
     # Get y
     y = np.array([val for _, val in values], dtype=float)
 
-    # Проверка на наличие NaN
-    has_nan = np.any(np.isnan(y))
-
-    if has_nan:
-        logger.info('NaN values in data')
-        raise ValueError('NaN values in data')
+    # Interpolate nan values in y
+    y = interpolate_nan_1d(y)
 
     return y, timestamps
 
