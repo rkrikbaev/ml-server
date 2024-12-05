@@ -10,9 +10,24 @@ logging.basicConfig(
 logger = logging.getLogger(__file__)
 
 import numpy as np
+import pandas as pd
 from typing import List, Dict
 
 from utils import timestamps_to_calendar_features, load_model_and_normalization
+
+
+
+def get_full_days_mask(timestamps: List[np.array], max_n_days=None):
+    df = pd.DataFrame({'dt': timestamps[0]})
+    df['dt'] = pd.to_datetime(df['dt'], unit='ns')
+    
+    df['date_counts'] = df.groupby(df['dt'].dt.date).size()
+    mask = df['date_counts'] == df['date_counts'].max()
+
+    if max_n_days is None:
+        return mask
+
+    return mask & (df['dt'].dt.date in df[mask]['dt'].dt.date.nlargest())
 
 
 def extract_features(
@@ -23,6 +38,15 @@ def extract_features(
     n_predict_steps: int = 24,
     step_granularity_s: int = 3600,
 ):
+    # Align with full days as model is trained to predict
+    # 1 day ahead and required to predict next full day
+    # TODO: use teperature forecast (so, its timestamps will be for the prediction period
+    # and probably need to be cropped differently)
+    for i in range(len(timestamps)):
+        mask = get_full_days_mask(timestamps[i], max_n_days=1)
+        timestamps[i] = timestamps[i][mask]
+        y[i] = y[i][mask]
+
     values = []
 
     # Add y features
