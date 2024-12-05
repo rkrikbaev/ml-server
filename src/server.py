@@ -85,7 +85,7 @@ async def process_data(request: Request):
                 sub=normalization['sub'],
                 n_predict_steps=period,
                 step_granularity_s=step,
-            )[0]
+            )
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
             r['task_message'] = f'Ошибка вызова прогноза для задачи с идентификатором {task_id}'

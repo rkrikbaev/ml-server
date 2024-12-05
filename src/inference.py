@@ -142,7 +142,7 @@ def predict(
     # Prepare timestamps
     pred_timestamps = build_pred_timestamps(timestamps, n_predict_steps, step_granularity_s)
 
-    return y_pred, pred_timestamps
+    return y_pred[0], pred_timestamps
 
 
 def init_model():
