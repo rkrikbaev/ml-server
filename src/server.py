@@ -68,15 +68,16 @@ async def process_data(request: Request):
 
     if not model:
         r['task_message']=f'Not found the model by name'
-        preds = predict_default(
+        preds, pred_timestamps = predict_default(
             y=y,
             timestamps=timestamps,
             n_predict_steps=period,
+            step_granularity_s=step,
         )
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
         try:
-            preds = predict(
+            preds, pred_timestamps = predict(
                 y=y,
                 timestamps=timestamps,
                 model=model,

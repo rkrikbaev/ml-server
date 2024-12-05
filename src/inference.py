@@ -28,7 +28,7 @@ def get_full_days_mask(timestamps: List[np.array], max_n_days=None):
     if max_n_days is None:
         return mask
 
-    return mask & (df['dt'].dt.date in df[mask]['dt'].dt.date.nlargest())
+    return mask & (df['dt'].dt.date in df[mask]['dt'].dt.date.nlargest(max_n_days))
 
 
 def extract_features(
@@ -91,7 +91,13 @@ def predict_default(
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
     n_predict_steps: int,
+    step_granularity_s: int,
 ):
+    # Shallow copy as we modify the lists (not arrays in it)
+    # below
+    timestamps = copy(timestamps)
+    y = copy(y)
+
     # Align with full days as model is trained to predict
     # 1 day ahead and required to predict next full day
     # TODO: use teperature forecast (so, its timestamps will be for the prediction period
@@ -101,7 +107,10 @@ def predict_default(
         timestamps[i] = timestamps[i][mask]
         y[i] = y[i][mask]
 
-    return y[0][-n_predict_steps:]
+    # Prepare timestamps
+    pred_timestamps = build_pred_timestamps(timestamps, n_predict_steps, step_granularity_s)
+
+    return y[0][-n_predict_steps:], pred_timestamps
     
 
 def predict(
@@ -129,8 +138,17 @@ def predict(
     # Unnormalize
     y_pred = y_pred * div['y'] + sub['y']
 
-    return y_pred
+    # Prepare timestamps
+    pred_timestamps = build_pred_timestamps(timestamps, n_predict_steps, step_granularity_s)
+
+    return y_pred, pred_timestamps
 
 
 def init_model():
     return load_model_and_normalization('xgb')
+
+
+def build_pred_timestamps(timestamps: List[np.ndarray], n_predict_steps: int, step_granularity_s: int):
+    first_next_full_day_datetime = pd.to_datetime(timestamps[0][-1], unit='ns').round('D') + pd.Timedelta('D')
+    pred_timestamps = [first_next_full_day_datetime + i * step_granularity_s for i in range(n_predict_steps)]
+    return pred_timestamps
