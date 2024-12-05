@@ -92,8 +92,7 @@ async def process_data(request: Request):
             logger.error(e)
             return r
     logger.info(preds)
-    # Construct pred_timestamps as a list
-    pred_timestamps = [timestamps[0][-1] + i * step for i in range(1,period+1)]
+
     # Prepare response
     result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]
 
