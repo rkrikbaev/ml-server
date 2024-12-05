@@ -150,7 +150,7 @@ def init_model():
 
 
 def build_pred_timestamps(timestamps: List[np.ndarray], n_predict_steps: int, step_granularity_s: int):
-    first_next_full_day_datetime = pd.to_datetime(timestamps[0][-1], unit='ns').round('D') + pd.Timedelta(days=1)
+    first_next_full_day_datetime = pd.to_datetime(timestamps[0][-1], unit='ms').round('D') + pd.Timedelta(days=1)
     first_next_full_day_timestamp = (first_next_full_day_datetime - pd.Timestamp('1970-01-01')) // pd.Timedelta('1ms')
-    pred_timestamps = [first_next_full_day_timestamp + i * step_granularity_s for i in range(n_predict_steps)]
+    pred_timestamps = [first_next_full_day_timestamp + i * step_granularity_s * 1000 for i in range(n_predict_steps)]
     return pred_timestamps
