@@ -21,9 +21,9 @@ from utils import timestamps_to_calendar_features, load_model_and_normalization
 GMT_TO_ASTANA_HOURS = 5
 def get_full_days_mask(timestamps: List[np.array], max_n_days=None):
     df = pd.DataFrame({'dt': timestamps})
-    df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(days=GMT_TO_ASTANA_HOURS)
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
     
-    df['date_counts'] = df.groupby(df['dt'].dt.round('D')).transform('count')
+    df['date_counts'] = df.groupby(df['dt'].dt.floor('D')).transform('count')
     mask = df['date_counts'] == df['date_counts'].max()
 
     if max_n_days is None:
@@ -152,7 +152,8 @@ def init_model():
 
 
 def build_pred_timestamps(timestamps: List[np.ndarray], n_predict_steps: int, step_granularity_s: int):
-    first_next_full_day_datetime = pd.to_datetime(timestamps[0][-1], unit='ms').round('D') + pd.Timedelta(days=1)
+    dt = pd.to_datetime(timestamps[0][-1], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
+    first_next_full_day_datetime = dt.floor('D') + pd.Timedelta(days=1)
     first_next_full_day_timestamp = (first_next_full_day_datetime - pd.Timestamp('1970-01-01')) // pd.Timedelta('1ms')
-    pred_timestamps = [first_next_full_day_timestamp + i * step_granularity_s * 1000 for i in range(n_predict_steps)]
+    pred_timestamps = [first_next_full_day_timestamp + i * step_granularity_s for i in range(n_predict_steps)]
     return pred_timestamps
