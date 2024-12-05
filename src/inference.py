@@ -18,15 +18,16 @@ from utils import timestamps_to_calendar_features, load_model_and_normalization
 
 
 
+GMT_TO_ASTANA_HOURS = 5
 def get_full_days_mask(timestamps: List[np.array], max_n_days=None):
     df = pd.DataFrame({'dt': timestamps})
-    df['dt'] = pd.to_datetime(df['dt'], unit='ms')
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(days=GMT_TO_ASTANA_HOURS)
     
     df['date_counts'] = df.groupby(df['dt'].dt.round('D')).transform('count')
     mask = df['date_counts'] == df['date_counts'].max()
 
     if max_n_days is None:
-        return mask
+        return mask.values
 
     cutoff_date = df[mask]['dt'].iloc[-1] - pd.Timedelta(days=max_n_days)
     mask = mask & (df['dt'] > cutoff_date)
