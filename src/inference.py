@@ -19,16 +19,17 @@ from utils import timestamps_to_calendar_features, load_model_and_normalization
 
 
 def get_full_days_mask(timestamps: List[np.array], max_n_days=None):
-    df = pd.DataFrame({'dt': timestamps[0]})
+    df = pd.DataFrame({'dt': timestamps})
     df['dt'] = pd.to_datetime(df['dt'], unit='ns')
     
-    df['date_counts'] = df.groupby(df['dt'].dt.date).size()
+    df['date_counts'] = df.groupby(df['dt'].dt.date).transform('count')
     mask = df['date_counts'] == df['date_counts'].max()
 
     if max_n_days is None:
         return mask
 
-    return mask & (df['dt'].dt.date in df[mask]['dt'].dt.date.nlargest(max_n_days))
+    cutoff_date = df[mask]['dt'].iloc[-1] - pd.Timedelta(days=max_n_days)
+    return mask & (df['dt'] > cutoff_date)
 
 
 def extract_features(
