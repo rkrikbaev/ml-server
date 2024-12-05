@@ -11,6 +11,7 @@ logger = logging.getLogger(__file__)
 
 import numpy as np
 import pandas as pd
+from copy import copy
 from typing import List, Dict
 
 from utils import timestamps_to_calendar_features, load_model_and_normalization
@@ -38,6 +39,11 @@ def extract_features(
     n_predict_steps: int = 24,
     step_granularity_s: int = 3600,
 ):
+    # Shallow copy as we modify the lists (not arrays in it)
+    # below
+    timestamps = copy(timestamps)
+    y = copy(y)
+
     # Align with full days as model is trained to predict
     # 1 day ahead and required to predict next full day
     # TODO: use teperature forecast (so, its timestamps will be for the prediction period
@@ -80,6 +86,23 @@ def extract_features(
 
     return np.concatenate(values)
 
+
+def predict_default(
+    timestamps: List[np.ndarray],
+    y: List[np.ndarray],
+    n_predict_steps: int,
+):
+    # Align with full days as model is trained to predict
+    # 1 day ahead and required to predict next full day
+    # TODO: use teperature forecast (so, its timestamps will be for the prediction period
+    # and probably need to be cropped differently)
+    for i in range(len(timestamps)):
+        mask = get_full_days_mask(timestamps[i], max_n_days=1)
+        timestamps[i] = timestamps[i][mask]
+        y[i] = y[i][mask]
+
+    return y[0][-n_predict_steps:]
+    
 
 def predict(
     model,

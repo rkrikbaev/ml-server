@@ -5,7 +5,7 @@ import http
 import uvicorn
 from fastapi import FastAPI, Request
 
-from inference import init_model, predict
+from inference import init_model, predict, predict_default
 from utils import extract_data
 
 
@@ -68,7 +68,11 @@ async def process_data(request: Request):
 
     if not model:
         r['task_message']=f'Not found the model by name'
-        preds = y[0][-period:]
+        preds = predict_default(
+            y=y,
+            timestamps=timestamps,
+            n_predict_steps=period,
+        )
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
         try:
