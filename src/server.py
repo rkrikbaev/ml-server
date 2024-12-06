@@ -83,6 +83,7 @@ async def process_data(request: Request):
                 model=model,
                 div=normalization['div'],
                 sub=normalization['sub'],
+                month_mean=normalization['month_mean'],
                 n_predict_steps=period,
                 step_granularity_s=step,
             )

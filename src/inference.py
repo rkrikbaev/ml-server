@@ -19,7 +19,7 @@ from utils import timestamps_to_calendar_features, load_model_and_normalization
 
 
 GMT_TO_ASTANA_HOURS = 5
-def get_full_days_mask(timestamps: List[np.array], max_n_days=None):
+def get_full_days_mask(timestamps: np.ndarray, max_n_days=None):
     df = pd.DataFrame({'dt': timestamps})
     df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
     
@@ -34,14 +34,27 @@ def get_full_days_mask(timestamps: List[np.array], max_n_days=None):
     return mask.values
 
 
+def get_month(timestamps: np.ndarray):
+    df = pd.DataFrame({'dt': timestamps})
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
+    return df['dt'].dt.month.mode()
+
+
 def extract_features(
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
     sub: Dict[str, float],
     div: Dict[str, float],
+    month_mean: Dict[int, float],
     n_predict_steps: int = 24,
     step_granularity_s: int = 3600,
 ):
+    # Calculate ratio of train period month mean 
+    # to current month mean
+    month = get_month(timestamps[0])
+    ratio = month_mean[month] / y[-1][-1]
+    y = y[:2]
+
     # Shallow copy as we modify the lists (not arrays in it)
     # below
     timestamps = copy(timestamps)
@@ -62,6 +75,8 @@ def extract_features(
     for y_, feature_name in zip(y, ['y', 'temperature']):
         # Normalize
         y_ = (y_ - sub[feature_name]) / div[feature_name]
+        if feature_name == 'y':
+            y_ = y_ * ratio
 
         # Truncate due to truncation during training
         y_ = y_[:-1]
@@ -87,7 +102,7 @@ def extract_features(
         ]
     )
 
-    return np.concatenate(values)
+    return np.concatenate(values), ratio
 
 
 def predict_default(
@@ -122,15 +137,17 @@ def predict(
     y: List[np.ndarray],
     sub: Dict[str, float],
     div: Dict[str, float],
+    month_mean: Dict[int, float],
     n_predict_steps: int,
     step_granularity_s: int,
 ):
     # Get features
-    X = extract_features(
+    X, train_to_test_correction_ratio = extract_features(
         timestamps,
         y,
         sub=sub,
         div=div,
+        month_mean=month_mean,
         n_predict_steps=n_predict_steps,
         step_granularity_s=step_granularity_s,
     )[None, :]
@@ -139,6 +156,7 @@ def predict(
     y_pred = model.predict(X)
 
     # Unnormalize
+    y_pred = y_pred / train_to_test_correction_ratio
     y_pred = y_pred * div['y'] + sub['y']
 
     # Prepare timestamps
