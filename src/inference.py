@@ -76,9 +76,6 @@ def extract_features(
         y_ = (y_ - sub[feature_name]) / div[feature_name]
         if feature_name == 'y':
             y_ = y_ * ratio
-
-        # Truncate due to truncation during training
-        y_ = y_[:-1]
         
         values.append(y_)
 
