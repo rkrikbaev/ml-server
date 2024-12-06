@@ -37,7 +37,7 @@ def get_full_days_mask(timestamps: np.ndarray, max_n_days=None):
 def get_month(timestamps: np.ndarray):
     df = pd.DataFrame({'dt': timestamps})
     df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
-    return df['dt'].dt.month.mode()
+    return df['dt'].dt.month.mode().iloc[0]
 
 
 def extract_features(
@@ -51,9 +51,8 @@ def extract_features(
 ):
     # Calculate ratio of train period month mean 
     # to current month mean
-    month = get_month(timestamps[0])
+    month = str(get_month(timestamps[0]))
     ratio = month_mean[month] / y[-1][-1]
-    y = y[:2]
 
     # Shallow copy as we modify the lists (not arrays in it)
     # below
