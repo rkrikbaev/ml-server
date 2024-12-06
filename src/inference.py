@@ -149,9 +149,10 @@ def predict(
         month_mean=month_mean,
         n_predict_steps=n_predict_steps,
         step_granularity_s=step_granularity_s,
-    )[None, :]
+    )
 
     # Predict
+    X = X[None, :]
     y_pred = model.predict(X)
 
     # Unnormalize
