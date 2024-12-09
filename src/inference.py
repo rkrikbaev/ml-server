@@ -187,7 +187,6 @@ def predict(
     # If friday, additionally predict for sunday and monday
     if weekday == 4:
         y_preds, pred_timestampss = [y_pred], [pred_timestamps]
-        print(len(pred_timestamps))
 
         # Get features
         X, pred_timestamps, train_to_test_correction_ratio = extract_features(
@@ -203,7 +202,6 @@ def predict(
         
         y_preds.append(y_pred)
         pred_timestampss.append(pred_timestamps)
-        print(len(pred_timestamps))
 
         # Get features
         X, pred_timestamps, train_to_test_correction_ratio = extract_features(
@@ -222,11 +220,8 @@ def predict(
         
         y_preds.append(y_pred)
         pred_timestampss.append(pred_timestamps)
-        print(len(pred_timestamps))
 
         y_pred, pred_timestamps = np.concatenate(y_preds, axis=0), np.concatenate(pred_timestampss, axis=0)
-
-    print(len(y_pred), len(pred_timestamps))
 
     # Unnormalize
     sub, div = normalization['sub'], normalization['div']
