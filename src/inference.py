@@ -43,12 +43,11 @@ def get_month(timestamps: np.ndarray):
 def extract_features(
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
-    sub: Dict[str, float],
-    div: Dict[str, float],
-    month_mean: Dict[int, float],
-    n_predict_steps: int = 24,
-    step_granularity_s: int = 3600,
+    normalization: Dict[str, Dict[str, float]],
+    pred_timestamps: np.ndarray,
 ):
+    sub, div, month_mean = normalization['sub'], normalization['div'], normalization['month_mean']
+
     # Calculate ratio of train period month mean 
     # to current month mean
     ratio = 1.0
@@ -86,7 +85,7 @@ def extract_features(
     # Add calendar features
     # Note: here the features are used for the first day of the prediction period
     # so the timestamps are shifted & day_off_change feature not used, so n_predict_steps arg is not used either
-    calendar_features = timestamps_to_calendar_features(timestamps[0] + n_predict_steps * step_granularity_s * 1000, n_predict_steps=0)
+    calendar_features = timestamps_to_calendar_features(pred_timestamps, n_predict_steps=0)
     calendar_features['weekday'] = (calendar_features['weekday'] - sub['weekday']) / div['weekday']
     calendar_features['is_day_off'] = (calendar_features['is_day_off'] - sub['is_day_off']) / div['is_day_off']
     calendar_features['hour'] = (calendar_features['hour'] - sub['hour']) / div['hour']
@@ -135,21 +134,19 @@ def predict(
     model,
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
-    sub: Dict[str, float],
-    div: Dict[str, float],
-    month_mean: Dict[int, float],
+    normalization: Dict[str, Dict[str, float]],
     n_predict_steps: int,
     step_granularity_s: int,
 ):
+    # Prepare timestamps
+    pred_timestamps = build_pred_timestamps(timestamps, n_predict_steps, step_granularity_s)
+
     # Get features
     X, train_to_test_correction_ratio = extract_features(
         timestamps,
         y,
-        sub=sub,
-        div=div,
-        month_mean=month_mean,
-        n_predict_steps=n_predict_steps,
-        step_granularity_s=step_granularity_s,
+        normalization,
+        pred_timestamps,
     )
 
     # Predict
@@ -157,11 +154,9 @@ def predict(
     y_pred = model.predict(X)
 
     # Unnormalize
+    sub, div = normalization['sub'], normalization['div']
     y_pred = y_pred / train_to_test_correction_ratio
     y_pred = y_pred * div['y'] + sub['y']
-
-    # Prepare timestamps
-    pred_timestamps = build_pred_timestamps(timestamps, n_predict_steps, step_granularity_s)
 
     return y_pred[0], pred_timestamps
 
