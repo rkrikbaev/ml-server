@@ -17,20 +17,19 @@ from typing import List, Dict
 from utils import timestamps_to_calendar_features, load_model_and_normalization
 
 
+def get_last_past_index(timestamps: np.ndarray) -> int:
+    return len(timestamps) // 2
 
-GMT_TO_ASTANA_HOURS = 5
-def get_full_days_mask(timestamps: np.ndarray, max_n_days=None):
+
+GMT_TO_ASTANA_HOURS = 6
+def get_full_days_mask(timestamps: np.ndarray, offset_days: int):
+    last_past_index = get_last_past_index(timestamps)
     df = pd.DataFrame({'dt': timestamps})
     df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
-    
-    df['date_counts'] = df.groupby(df['dt'].dt.floor('D')).transform('count')
-    mask = df['date_counts'] == df['date_counts'].max()
-
-    if max_n_days is None:
-        return mask.values
-
-    cutoff_date = df[mask]['dt'].iloc[-1] - pd.Timedelta(days=max_n_days)
-    mask = mask & (df['dt'] > cutoff_date)
+    date = df['dt'].dt.floor('D')
+    current_date = date.iloc[last_past_index]
+    target_date = current_date + pd.Timedelta(days=offset_days)
+    mask = date == target_date
     return mask.values
 
 
@@ -40,13 +39,24 @@ def get_month(timestamps: np.ndarray):
     return df['dt'].dt.month.mode().iloc[0]
 
 
+def get_weekday(timestamps: np.ndarray) -> bool:
+    last_past_index = get_last_past_index(timestamps)
+    df = pd.DataFrame({'dt': timestamps})
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
+    return df['dt'].dt.weekday.iloc[last_past_index]
+
+
 def extract_features(
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
     normalization: Dict[str, Dict[str, float]],
-    pred_timestamps: np.ndarray,
+    offset_days: int,
 ):
     sub, div, month_mean = normalization['sub'], normalization['div'], normalization['month_mean']
+
+    # Prepare pred timestamps as + 2 of the feature days
+    pred_mask = get_full_days_mask(timestamps[0], offset_days + 2)
+    pred_timestamps = timestamps[0][pred_mask]
 
     # Calculate ratio of train period month mean 
     # to current month mean
@@ -62,18 +72,18 @@ def extract_features(
     timestamps = copy(timestamps)
     y = copy(y)
 
-    # Align with full days as model is trained to predict
-    # 1 day ahead and required to predict next full day
-    # TODO: use teperature forecast (so, its timestamps will be for the prediction period
-    # and probably need to be cropped differently)
-    for i in range(len(timestamps)):
-        mask = get_full_days_mask(timestamps[i], max_n_days=1)
-        timestamps[i] = timestamps[i][mask]
-        y[i] = y[i][mask]
+    # Replace nan values in y with values from the
+    # predictions archive
+    y[0] = np.where(np.isnan(y[0]), y[2], y[0])
 
-    values = []
+    # Extract full day features
+    history_mask = get_full_days_mask(timestamps[0], offset_days)
+    for i in range(len(timestamps)):
+        timestamps[i] = timestamps[i][history_mask]
+        y[i] = y[i][history_mask]
 
     # Add y features
+    values = []
     for y_, feature_name in zip(y, ['y', 'temperature']):
         # Normalize
         y_ = (y_ - sub[feature_name]) / div[feature_name]
@@ -101,73 +111,119 @@ def extract_features(
         ]
     )
 
-    return np.concatenate(values), ratio
+    return np.concatenate(values), pred_timestamps, ratio
 
 
 def predict_default(
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
-    n_predict_steps: int,
-    step_granularity_s: int,
 ):
+    # Get weekday
+    weekday = get_weekday(timestamps[0])
+
     # Shallow copy as we modify the lists (not arrays in it)
     # below
     timestamps = copy(timestamps)
     y = copy(y)
 
-    # Align with full days as model is trained to predict
-    # 1 day ahead and required to predict next full day
-    # TODO: use teperature forecast (so, its timestamps will be for the prediction period
-    # and probably need to be cropped differently)
+    # Extract full day features
+    history_mask = get_full_days_mask(timestamps[0], -1)
     for i in range(len(timestamps)):
-        mask = get_full_days_mask(timestamps[i], max_n_days=1)
-        timestamps[i] = timestamps[i][mask]
-        y[i] = y[i][mask]
+        timestamps[i] = timestamps[i][history_mask]
+        y[i] = y[i][history_mask]
 
-    # Prepare timestamps
-    pred_timestamps = build_pred_timestamps(timestamps, n_predict_steps, step_granularity_s)
+    # Prepare pred timestamps as + 2 of the feature days
+    pred_mask = get_full_days_mask(timestamps[0], 1)
+    pred_timestamps = timestamps[0][pred_mask]
 
-    return y[0][-n_predict_steps:], pred_timestamps
+    y_pred = y[0]
+
+    # If friday, additionally predict for sunday and monday
+    if weekday == 4:
+        y_pred = np.concatenate([y_pred] * 3, axis=0)
+
+        pred_timestampss = [pred_timestamps]
+
+        pred_mask = get_full_days_mask(timestamps[0], 2)
+        pred_timestamps = timestamps[0][pred_mask]
+        pred_timestampss.append(pred_timestamps)
+
+        pred_mask = get_full_days_mask(timestamps[0], 3)
+        pred_timestamps = timestamps[0][pred_mask]
+        pred_timestampss.append(pred_timestamps)
+        
+        pred_timestamps = np.concatenate(pred_timestampss, axis=0)
     
+    return y_pred, pred_timestamps
+
 
 def predict(
     model,
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
     normalization: Dict[str, Dict[str, float]],
-    n_predict_steps: int,
-    step_granularity_s: int,
 ):
-    # Prepare timestamps
-    pred_timestamps = build_pred_timestamps(timestamps, n_predict_steps, step_granularity_s)
+    # Get weekday
+    weekday = get_weekday(timestamps[0])
 
     # Get features
-    X, train_to_test_correction_ratio = extract_features(
+    X, pred_timestamps, train_to_test_correction_ratio = extract_features(
         timestamps,
         y,
         normalization,
-        pred_timestamps,
+        offset_days=-1,
     )
 
     # Predict
     X = X[None, :]
-    y_pred = model.predict(X)
+    y_pred = model.predict(X)[0]
+
+    # If friday, additionally predict for sunday and monday
+    if weekday == 4:
+        y_preds, pred_timestampss = [y_pred], [pred_timestamps]
+
+        # Get features
+        X, pred_timestamps, train_to_test_correction_ratio = extract_features(
+            timestamps,
+            y,
+            normalization,
+            offset_days=0,
+        )
+
+        # Predict
+        X = X[None, :]
+        y_pred = model.predict(X)[0]
+        
+        y_preds.append(y_pred)
+        pred_timestampss.append(pred_timestamps)
+
+        # Get features
+        X, pred_timestamps, train_to_test_correction_ratio = extract_features(
+            timestamps,
+            y,
+            normalization,
+            offset_days=1,
+        )
+
+        # Use saturday predictions as GT
+        X[:y_preds[0].shape[0]] = y_preds[0]
+
+        # Predict
+        X = X[None, :]
+        y_pred = model.predict(X)[0]
+        
+        y_preds.append(y_pred)
+        pred_timestampss.append(pred_timestamps)
+
+        y_pred, pred_timestamps = np.concatenate(y_preds, axis=0), np.concatenate(pred_timestampss, axis=0)
 
     # Unnormalize
     sub, div = normalization['sub'], normalization['div']
     y_pred = y_pred / train_to_test_correction_ratio
     y_pred = y_pred * div['y'] + sub['y']
 
-    return y_pred[0], pred_timestamps
+    return y_pred, pred_timestamps
 
 
 def init_model():
     return load_model_and_normalization('xgb')
-
-
-def build_pred_timestamps(timestamps: List[np.ndarray], n_predict_steps: int, step_granularity_s: int):
-    dt = pd.to_datetime(timestamps[0][-1], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
-    first_next_full_day_datetime = dt.floor('D') + pd.Timedelta(days=1) - pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
-    first_next_full_day_timestamp = (first_next_full_day_datetime - pd.Timestamp('1970-01-01')) // pd.Timedelta('1ms')
-    pred_timestamps = [first_next_full_day_timestamp + i * step_granularity_s for i in range(n_predict_steps)]
-    return pred_timestamps

@@ -71,8 +71,6 @@ async def process_data(request: Request):
         preds, pred_timestamps = predict_default(
             y=y,
             timestamps=timestamps,
-            n_predict_steps=period,
-            step_granularity_s=step,
         )
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
@@ -82,8 +80,6 @@ async def process_data(request: Request):
                 timestamps=timestamps,
                 model=model,
                 normalization=normalization,
-                n_predict_steps=period,
-                step_granularity_s=step,
             )
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
