@@ -78,10 +78,6 @@ def extract_features(
     timestamps = copy(timestamps)
     y = copy(y)
 
-    # Replace nan values in y with values from the
-    # predictions archive
-    y[0] = np.where(np.isnan(y[0]), y[2], y[0])
-
     # Extract full day features
     history_mask = get_full_days_mask(timestamps[0], offset_days)
     for i in range(len(timestamps)):
@@ -186,15 +182,42 @@ def predict(
 
     # If friday, additionally predict for sunday and monday
     if weekday == 4:
+        ### Saturday: predicted as usual
         y_preds, pred_timestampss = [y_pred], [pred_timestamps]
 
+        ### Sunday
+        ### - predict for friday first, as we are in the middle of the day
+        ###   and not all the GT values are present for it
+        ### - then use the prediction in place of missing GT values
+
         # Get features
-        X, pred_timestamps, train_to_test_correction_ratio = extract_features(
+        X, _, _ = extract_features(
+            timestamps,
+            y,
+            normalization,
+            offset_days=-2,
+        )
+
+        # Predict
+        X = X[None, :]
+        y_pred = model.predict(X)[0]
+        # Note: we do not add it to y_preds
+
+        # Get features
+        X, pred_timestamps, _ = extract_features(
             timestamps,
             y,
             normalization,
             offset_days=0,
         )
+
+        # Partially use friday predictions as GT
+        last_past_index = get_last_past_index(timestamps[0])
+        future_mask = np.arange(len(timestamps[0])) > last_past_index
+        friday_mask = get_full_days_mask(timestamps[0], 0)
+        friday_future_mask = future_mask & friday_mask
+        friday_future_mask = friday_future_mask[friday_mask]
+        X[:y_pred.shape[0]] = np.where(friday_future_mask, y_pred, X[:y_pred.shape[0]])
 
         # Predict
         X = X[None, :]
@@ -203,8 +226,11 @@ def predict(
         y_preds.append(y_pred)
         pred_timestampss.append(pred_timestamps)
 
+        ### Monday
+        ### - use the saturday prediction in place of missing GT values
+
         # Get features
-        X, pred_timestamps, train_to_test_correction_ratio = extract_features(
+        X, pred_timestamps, _ = extract_features(
             timestamps,
             y,
             normalization,
