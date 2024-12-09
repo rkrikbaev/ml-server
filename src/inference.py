@@ -46,6 +46,13 @@ def get_weekday(timestamps: np.ndarray) -> bool:
     return df['dt'].dt.weekday.iloc[last_past_index]
 
 
+def build_pred_timestamps(timestamps: np.ndarray, offset_days: int):
+    # Get prev day timestamps and add +2 days
+    history_mask = get_full_days_mask(timestamps, offset_days)
+    pred_timestamps = timestamps[history_mask] + 2 * 24 * 3600 * 1000
+    return pred_timestamps
+
+
 def extract_features(
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
@@ -55,8 +62,7 @@ def extract_features(
     sub, div, month_mean = normalization['sub'], normalization['div'], normalization['month_mean']
 
     # Prepare pred timestamps as + 2 of the feature days
-    pred_mask = get_full_days_mask(timestamps[0], offset_days + 2)
-    pred_timestamps = timestamps[0][pred_mask]
+    pred_timestamps = build_pred_timestamps(timestamps[0], offset_days)
 
     # Calculate ratio of train period month mean 
     # to current month mean
@@ -181,6 +187,7 @@ def predict(
     # If friday, additionally predict for sunday and monday
     if weekday == 4:
         y_preds, pred_timestampss = [y_pred], [pred_timestamps]
+        print(len(pred_timestamps))
 
         # Get features
         X, pred_timestamps, train_to_test_correction_ratio = extract_features(
@@ -196,6 +203,7 @@ def predict(
         
         y_preds.append(y_pred)
         pred_timestampss.append(pred_timestamps)
+        print(len(pred_timestamps))
 
         # Get features
         X, pred_timestamps, train_to_test_correction_ratio = extract_features(
@@ -214,8 +222,11 @@ def predict(
         
         y_preds.append(y_pred)
         pred_timestampss.append(pred_timestamps)
+        print(len(pred_timestamps))
 
         y_pred, pred_timestamps = np.concatenate(y_preds, axis=0), np.concatenate(pred_timestampss, axis=0)
+
+    print(len(y_pred), len(pred_timestamps))
 
     # Unnormalize
     sub, div = normalization['sub'], normalization['div']
