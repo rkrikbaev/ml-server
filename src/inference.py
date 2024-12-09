@@ -21,7 +21,7 @@ def get_last_past_index(timestamps: np.ndarray) -> int:
     return len(timestamps) // 2
 
 
-GMT_TO_ASTANA_HOURS = 6
+GMT_TO_ASTANA_HOURS = 5
 def get_full_days_mask(timestamps: np.ndarray, offset_days: int):
     last_past_index = get_last_past_index(timestamps)
     df = pd.DataFrame({'dt': timestamps})
