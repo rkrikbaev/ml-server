@@ -24,4 +24,4 @@ echo "Last segment: $version"
 echo "Container name: $fullname"
 
 # Start docker container
-docker run -itd --name "$fullname" -e LOGLEVEL=DEBUG -p $port:8000 -v "/$root/local/models/$model:/workspace/model" -v "/$root/src:/workspace/server" $image python3 -m uvicorn server:app --host 0.0.0.0 --port 8000
+docker run -m 300m -itd --name "$fullname" -e LOGLEVEL=DEBUG -p $port:8000 -v "/$root/local/models/$model:/workspace/model" -v "/$root/src:/workspace/server" $image python3 -m uvicorn server:app --host 0.0.0.0 --port 8000
