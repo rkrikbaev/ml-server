@@ -14,6 +14,7 @@ import json
 import numpy as np
 import pandas as pd
 import re
+from prophet.serialize import model_from_json
 from xgboost import XGBRegressor
 from typing import List, Dict, Tuple, Literal
 
@@ -176,8 +177,8 @@ def extract_data(values: list) -> Tuple[str, str, np.ndarray, np.ndarray]:
     return y, timestamps
 
 
-def load_model_and_normalization(model_type: Literal['lr', 'xgb'] = 'lr'):
-    assert model_type in ['lr', 'xgb']
+def load_model_and_normalization(model_type: Literal['lr', 'xgb', 'prophet'] = 'lr'):
+    assert model_type in ['lr', 'xgb', 'prophet']
 
     normalizations = dict()
     model = None
@@ -206,11 +207,19 @@ def load_model_and_normalization(model_type: Literal['lr', 'xgb'] = 'lr'):
     logger.debug(f'Model path: {model_path}')
     
     if os.path.exists(model_path):
-        if model_type == 'lr':
-            model = joblib.load(model_path)
-        else:
-            model = XGBRegressor()
-            model.load_model(model_path)
+        try:
+            if model_type == 'lr':
+                model = joblib.load(model_path)
+            elif model_type == 'xgb':
+                model = XGBRegressor()
+                model.load_model(model_path)
+            else:
+                assert model_type == 'prophet'
+                with open(model_path, 'r') as f:
+                    j = f.read()
+                    model = model_from_json(j)
+        except Exception as e:
+            logger.error(f"Error loading model from {model_path}: {e}")
     else:
         logger.warning('Model not exist')
     

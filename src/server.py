@@ -50,7 +50,7 @@ async def process_data(request: Request):
             'task_output': []
         }
 
-    model, normalization = init_model()
+    model, normalization = init_model(step)
 
     y, timestamps = [], []
     for i in range(len(d['task_input'])):
@@ -64,7 +64,7 @@ async def process_data(request: Request):
             logger.error(e)
             return r
     
-    logger.debug(f"len(y): {len(y)}")
+    logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
 
     if not model:
         r['task_message']=f'Not found the model by name'
@@ -80,6 +80,8 @@ async def process_data(request: Request):
                 timestamps=timestamps,
                 model=model,
                 normalization=normalization,
+                step=step,
+                output_range=period,
             )
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
@@ -89,7 +91,9 @@ async def process_data(request: Request):
     logger.info(preds)
 
     # Prepare response
-    result = [[int(ts), float(p)] for ts, p in zip(pred_timestamps, preds)]
+    # result = [[int(ts), f'{float(p):.1f}'] for ts, p in zip(pred_timestamps, preds)]
+    result = [[int(ts), round(float(p), 1)] for ts, p in zip(pred_timestamps, preds)]
+    logger.info(f'result: {result}')
 
     logger.info(f"len(result): {len(result)}")
 

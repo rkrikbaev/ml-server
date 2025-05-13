@@ -1,6 +1,7 @@
 # Config logging
 import logging
 import os
+import math
 
 logging.basicConfig(
     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
@@ -13,6 +14,7 @@ import numpy as np
 import pandas as pd
 from copy import copy
 from typing import List, Dict
+from xgboost import XGBRegressor
 
 from utils import timestamps_to_calendar_features, load_model_and_normalization
 
@@ -62,7 +64,9 @@ def extract_features(
     sub, div, month_mean = normalization['sub'], normalization['div'], normalization['month_mean']
 
     # Prepare pred timestamps as + 2 of the feature days
+    logger.info(f'len(timestamps[0]): {len(timestamps[0])}, timestamps[0]: {timestamps[0]}')
     pred_timestamps = build_pred_timestamps(timestamps[0], offset_days)
+    logger.info(f'len(pred_timestamps): {len(pred_timestamps)}, pred_timestamps: {pred_timestamps}')
 
     # Calculate ratio of train period month mean 
     # to current month mean
@@ -77,12 +81,14 @@ def extract_features(
     # below
     timestamps = copy(timestamps)
     y = copy(y)
+    logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
 
     # Extract full day features
     history_mask = get_full_days_mask(timestamps[0], offset_days)
     for i in range(len(timestamps)):
         timestamps[i] = timestamps[i][history_mask]
         y[i] = y[i][history_mask]
+    logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
 
     # Add y features
     values = []
@@ -163,99 +169,122 @@ def predict(
     model,
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
-    normalization: Dict[str, Dict[str, float]],
+    normalization: Dict[str, Dict[str, float]] | None,
+    step: int,
+    output_range: int,
 ):
-    # Get weekday
-    weekday = get_weekday(timestamps[0])
-
-    # Get features
-    X, pred_timestamps, train_to_test_correction_ratio = extract_features(
-        timestamps,
-        y,
-        normalization,
-        offset_days=-1,
-    )
-
     # Predict
-    X = X[None, :]
-    y_pred = model.predict(X)[0]
-
-    # If friday, additionally predict for sunday and monday
-    if weekday == 4:
-        ### Saturday: predicted as usual
-        y_preds, pred_timestampss = [y_pred], [pred_timestamps]
-
-        ### Sunday
-        ### - predict for friday first, as we are in the middle of the day
-        ###   and not all the GT values are present for it
-        ### - then use the prediction in place of missing GT values
+    if isinstance(model, XGBRegressor):
+        # Get weekday
+        weekday = get_weekday(timestamps[0])
 
         # Get features
-        X, _, _ = extract_features(
+        X, pred_timestamps, train_to_test_correction_ratio = extract_features(
             timestamps,
             y,
             normalization,
-            offset_days=-2,
+            offset_days=-1,
         )
+        logger.info(f'X.shape: {X.shape}')
 
-        # Predict
         X = X[None, :]
         y_pred = model.predict(X)[0]
-        # Note: we do not add it to y_preds
 
-        # Get features
-        X, pred_timestamps, _ = extract_features(
-            timestamps,
-            y,
-            normalization,
-            offset_days=0,
-        )
+        # If friday, additionally predict for sunday and monday
+        if weekday == 4:
+            ### Saturday: predicted as usual
+            y_preds, pred_timestampss = [y_pred], [pred_timestamps]
 
-        # Partially use friday predictions as GT
-        last_past_index = get_last_past_index(timestamps[0])
-        future_mask = np.arange(len(timestamps[0])) > last_past_index
-        friday_mask = get_full_days_mask(timestamps[0], 0)
-        friday_future_mask = future_mask & friday_mask
-        friday_future_mask = friday_future_mask[friday_mask]
-        X[:y_pred.shape[0]] = np.where(friday_future_mask, y_pred, X[:y_pred.shape[0]])
+            ### Sunday
+            ### - predict for friday first, as we are in the middle of the day
+            ###   and not all the GT values are present for it
+            ### - then use the prediction in place of missing GT values
 
-        # Predict
-        X = X[None, :]
-        y_pred = model.predict(X)[0]
+            # Get features
+            X, _, _ = extract_features(
+                timestamps,
+                y,
+                normalization,
+                offset_days=-2,
+            )
+
+            # Predict
+            X = X[None, :]
+            y_pred = model.predict(X)[0]
+            # Note: we do not add it to y_preds
+
+            # Get features
+            X, pred_timestamps, _ = extract_features(
+                timestamps,
+                y,
+                normalization,
+                offset_days=0,
+            )
+
+            # Partially use friday predictions as GT
+            last_past_index = get_last_past_index(timestamps[0])
+            future_mask = np.arange(len(timestamps[0])) > last_past_index
+            friday_mask = get_full_days_mask(timestamps[0], 0)
+            friday_future_mask = future_mask & friday_mask
+            friday_future_mask = friday_future_mask[friday_mask]
+            X[:y_pred.shape[0]] = np.where(friday_future_mask, y_pred, X[:y_pred.shape[0]])
+
+            # Predict
+            X = X[None, :]
+            y_pred = model.predict(X)[0]
+            
+            y_preds.append(y_pred)
+            pred_timestampss.append(pred_timestamps)
+
+            ### Monday
+            ### - use the saturday prediction in place of missing GT values
+
+            # Get features
+            X, pred_timestamps, _ = extract_features(
+                timestamps,
+                y,
+                normalization,
+                offset_days=1,
+            )
+
+            # Use saturday predictions as GT
+            X[:y_preds[0].shape[0]] = y_preds[0]
+
+            # Predict
+            X = X[None, :]
+            y_pred = model.predict(X)[0]
+            
+            y_preds.append(y_pred)
+            pred_timestampss.append(pred_timestamps)
+
+            y_pred, pred_timestamps = np.concatenate(y_preds, axis=0), np.concatenate(pred_timestampss, axis=0)
+
+        # Unnormalize
+        sub, div = normalization['sub'], normalization['div']
+        y_pred = y_pred / train_to_test_correction_ratio
+        y_pred = y_pred * div['y'] + sub['y']
+    else:
+        # Test that we do 1 month step prediction for 1 year
+        assert step == 2592000000
+        assert output_range == 12
         
-        y_preds.append(y_pred)
-        pred_timestampss.append(pred_timestamps)
+        # Round to next month start
+        last_dt = pd.to_datetime(timestamps[0][-1], unit='ms')
+        pred_start_dt = last_dt + pd.DateOffset(months=1)
+        pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        ### Monday
-        ### - use the saturday prediction in place of missing GT values
+        pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
 
-        # Get features
-        X, pred_timestamps, _ = extract_features(
-            timestamps,
-            y,
-            normalization,
-            offset_days=1,
-        )
-
-        # Use saturday predictions as GT
-        X[:y_preds[0].shape[0]] = y_preds[0]
-
-        # Predict
-        X = X[None, :]
-        y_pred = model.predict(X)[0]
-        
-        y_preds.append(y_pred)
-        pred_timestampss.append(pred_timestamps)
-
-        y_pred, pred_timestamps = np.concatenate(y_preds, axis=0), np.concatenate(pred_timestampss, axis=0)
-
-    # Unnormalize
-    sub, div = normalization['sub'], normalization['div']
-    y_pred = y_pred / train_to_test_correction_ratio
-    y_pred = y_pred * div['y'] + sub['y']
+        df = pd.DataFrame({'ds': pred_dt})
+        df_forecast = model.predict(df)
+        y_pred = df_forecast['yhat'].values
+        pred_timestamps = [
+            int(dt.timestamp() * 1000) for dt in pred_dt
+        ]
+        pred_timestamps = np.array(pred_timestamps, dtype=int)
 
     return y_pred, pred_timestamps
 
 
-def init_model():
-    return load_model_and_normalization('xgb')
+def init_model(step: int):
+    return load_model_and_normalization('xgb' if step == 3600000 else 'prophet')
