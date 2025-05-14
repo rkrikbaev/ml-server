@@ -269,8 +269,7 @@ def predict(
         assert output_range == 12
         
         # Round to next month start
-        last_dt = pd.to_datetime(timestamps[0][-1], unit='ms')
-        pred_start_dt = last_dt + pd.DateOffset(months=1)
+        pred_start_dt = pd.to_datetime(timestamps[0][len(timestamps[0]) // 2], unit='ms')
         pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
