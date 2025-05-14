@@ -1,7 +1,6 @@
 # Config logging
 import logging
 import os
-import math
 
 logging.basicConfig(
     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',

@@ -1,6 +1,14 @@
 # Config logging
 import logging
 import os
+
+logging.basicConfig(
+    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+    datefmt='%H:%M:%S',
+    level=os.environ.get('LOGLEVEL', 'INFO'),
+)
+logger = logging.getLogger(__file__)
+
 import http
 import asyncio
 import uvicorn
@@ -9,13 +17,6 @@ from fastapi import FastAPI, Request
 from inference import init_model, predict, predict_default
 from utils import extract_data
 
-
-logging.basicConfig(
-    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-    datefmt='%H:%M:%S',
-    level=os.environ.get('LOGLEVEL', 'DEBUG'),
-)
-logger = logging.getLogger(__file__)
 
 app = FastAPI()
 

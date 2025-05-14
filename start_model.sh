@@ -30,7 +30,7 @@ docker run \
     -itd \
     --name "$fullname" \
     -e MAX_CONCURRENT_REQUESTS=8 \
-    -e LOGLEVEL=DEBUG \
+    -e LOGLEVEL=ERROR \
     -p $port:8000 \
     -v "/$root/local/models/$model:/workspace/model" \
     -v "/$root/src:/workspace/server" \
