@@ -37,6 +37,7 @@ async def _process_data(request: Request):
     period = None   # number of timestamps to predict
     step = None     # how many seconds between timestamps
     task_id = None
+    model_path = '/workspace/model'
     task_message = ''
     task_status = None
 
@@ -46,6 +47,7 @@ async def _process_data(request: Request):
         step = d["step"] #model_input_granularity
         period = d["period"]  #model_output_range
         task_id = d["task_id"]
+        model_path = d.get("model_path", model_path)
         task_message = f'Запущена задача с идентификатором [{task_id}]'
     except KeyError as e:
         task_status = "ОШИБКА"
@@ -60,7 +62,7 @@ async def _process_data(request: Request):
             'task_output': []
         }
 
-    model, normalization = init_model(step)
+    model, normalization = init_model(model_path, step)
 
     y, timestamps = [], []
     for i in range(len(d['task_input'])):

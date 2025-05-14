@@ -284,5 +284,8 @@ def predict(
     return y_pred, pred_timestamps
 
 
-def init_model(step: int):
-    return load_model_and_normalization('xgb' if step == 3600000 else 'prophet')
+def init_model(model_path: str, step: int):
+    return load_model_and_normalization(
+        model_dirpath=model_path, 
+        model_type='xgb' if step == 3600000 else 'prophet'
+    )
