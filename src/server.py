@@ -77,11 +77,11 @@ async def _process_data(request: Request):
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
 
     if not model:
-        r['task_message']=f'Not found the model by name'
         preds, pred_timestamps = predict_default(
             y=y,
             timestamps=timestamps,
         )
+        r['task_status'] = 'ОШИБКА'
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
         try:
