@@ -21,7 +21,11 @@ from utils import extract_data
 app = FastAPI()
 
 # Set maximum number of concurrent requests
-MAX_CONCURRENT_REQUESTS = os.environ.get('MAX_CONCURRENT_REQUESTS', 8)
+try:
+    MAX_CONCURRENT_REQUESTS = int(os.environ.get('MAX_CONCURRENT_REQUESTS', '8'))
+except ValueError:
+    MAX_CONCURRENT_REQUESTS = 8
+    logger.warning(f"Invalid value for MAX_CONCURRENT_REQUESTS, using default: {MAX_CONCURRENT_REQUESTS}")
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
 
