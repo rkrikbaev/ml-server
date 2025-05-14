@@ -26,9 +26,10 @@ echo "Container name: $fullname"
 # Start docker container
 docker run \
     --cpus 8 \
-    -m 300m \
+    -m 1024m \
     -itd \
     --name "$fullname" \
+    -e MAX_CONCURRENT_REQUESTS=8 \
     -e LOGLEVEL=DEBUG \
     -p $port:8000 \
     -v "/$root/local/models/$model:/workspace/model" \

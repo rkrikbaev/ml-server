@@ -2,6 +2,7 @@
 import logging
 import os
 import http
+import asyncio
 import uvicorn
 from fastapi import FastAPI, Request
 
@@ -18,8 +19,12 @@ logger = logging.getLogger(__file__)
 
 app = FastAPI()
 
-@app.post("/predict/")
-async def process_data(request: Request):
+# Set maximum number of concurrent requests
+MAX_CONCURRENT_REQUESTS = os.environ.get('MAX_CONCURRENT_REQUESTS', 8)
+semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+
+async def _process_data(request: Request):
     logger.info("Request...")
     [d] = await request.json()
     logger.info(f"Request data: {d}")
@@ -103,6 +108,13 @@ async def process_data(request: Request):
     logger.info(f"Output: {r}")
 
     return r
+
+
+@app.post("/predict/")
+async def process_data(request: Request):
+    async with semaphore:
+        return await _process_data(request)
+
 
 if __name__ == "__main__":
     # Run server
