@@ -32,7 +32,7 @@ docker run \
     -e MAX_CONCURRENT_REQUESTS=8 \
     -e LOGLEVEL=WARNING \
     -p $port:8000 \
-    -v "/$root/local/models/$model:/workspace/model" \
+    -v "/$root/local/$model:/workspace/models" \
     -v "/$root/src:/workspace/server" \
     $image \
     python3 -m uvicorn server:app --host 0.0.0.0 --port 8000

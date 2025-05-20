@@ -177,15 +177,17 @@ def extract_data(values: list) -> Tuple[str, str, np.ndarray, np.ndarray]:
     return y, timestamps
 
 
-def load_model_and_normalization(model_dirpath: str, model_type: Literal['lr', 'xgb', 'prophet'] = 'lr'):
+def load_model_and_normalization(model_rel_dirpath: str = None, model_type: Literal['lr', 'xgb', 'prophet'] = 'lr'):
     assert model_type in ['lr', 'xgb', 'prophet']
 
     normalizations = dict()
     model = None
 
     file_name = 'normalization.json'
-    model_path = os.path.join(model_dirpath, file_name).lower()
-
+    model_dirpath = '/workspace/models'
+    if model_rel_dirpath is not None:
+        model_dirpath = os.path.join(model_dirpath, model_rel_dirpath)
+    model_path = os.path.join(model_dirpath, file_name)
     logger.debug(f'Model normalization path: {model_path}')
 
     if os.path.exists(model_path):
@@ -202,8 +204,7 @@ def load_model_and_normalization(model_dirpath: str, model_type: Literal['lr', '
     else:
         file_name = 'model.json'
     
-    model_path = os.path.join(model_dirpath, file_name).lower()
-
+    model_path = os.path.join(model_dirpath, file_name)
     logger.debug(f'Model path: {model_path}')
     
     if os.path.exists(model_path):

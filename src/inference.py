@@ -286,6 +286,6 @@ def predict(
 
 def init_model(model_path: str, step: int):
     return load_model_and_normalization(
-        model_dirpath=model_path, 
+        model_rel_dirpath=model_path, 
         model_type='xgb' if step == 3600000 else 'prophet'
     )
