@@ -1,1 +1,0 @@
-python src/train_shortterm.py data/ outputs/UZHNIY --model_config_filepath configs/lr.yaml --drop_changepoints --drop_zeros --use_fp_telemetry --no_val --tis 937 938 939 950 972 976 977 978 979 980 981 983 984 990 1320 1321 1322 1323 1469 1932 3339
