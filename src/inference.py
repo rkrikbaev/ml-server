@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 from copy import copy
 from typing import List, Dict
+from prophet import Prophet
 from xgboost import XGBRegressor
 
 from utils import timestamps_to_calendar_features, load_model_and_normalization
@@ -171,9 +172,12 @@ def predict(
     normalization: Dict[str, Dict[str, float]] | None,
     step: int,
     output_range: int,
+    online: bool,
 ):
     # Predict
     if isinstance(model, XGBRegressor):
+        assert not online, "XGBRegressor model should not be used in online mode"
+
         # Get weekday
         weekday = get_weekday(timestamps[0])
 
@@ -263,18 +267,31 @@ def predict(
         y_pred = y_pred / train_to_test_correction_ratio
         y_pred = y_pred * div['y'] + sub['y']
     else:
-        # Test that we do 1 month step prediction for 1 year
-        assert step == 2592000000
-        assert output_range == 12
-        
-        # Round to next month start
+        if online:
+            # Fit the model on the provided data
+            # TODO: add other regressors
+            df_train = pd.DataFrame(
+                {
+                    'ds': pd.to_datetime(timestamps[0], unit='ms'),
+                    'y': y[0],
+                }
+            )
+            model.fit(df_train)
+
+        # The data interval middle is actually the current time
         pred_start_dt = pd.to_datetime(timestamps[0][len(timestamps[0]) // 2], unit='ms')
-        pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if step == 2592000000:
+            assert not online, "Prophet model should not be used in online mode for monthly step"
 
-        pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
+            # Round to next month start
+            pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
+        else:
+            # Do not round for daily and hourly steps
+            pred_dt = [pred_start_dt + pd.DateOffset(milliseconds=step * i) for i in range(output_range)]
 
-        df = pd.DataFrame({'ds': pred_dt})
-        df_forecast = model.predict(df)
+        df_future = pd.DataFrame({'ds': pred_dt})
+        df_forecast = model.predict(df_future)
         y_pred = df_forecast['yhat'].values
         pred_timestamps = [
             int(dt.timestamp() * 1000) for dt in pred_dt
@@ -284,8 +301,49 @@ def predict(
     return y_pred, pred_timestamps
 
 
-def init_model(model_path: str, step: int):
-    return load_model_and_normalization(
-        model_rel_dirpath=model_path, 
-        model_type='xgb' if step == 3600000 else 'prophet'
-    )
+def init_model(model_path: str | None, step: int):
+    if model_path == '':
+        # Create new Prophet model to train on the provided inputs
+        # and no normalization
+        if step == 2592000000:
+            # Monthly (30 days) step
+            # expected to have 12+ months of data
+            seasonality_kwargs = {
+                'daily_seasonality': False,
+                'weekly_seasonality': False,
+                'yearly_seasonality': True,
+            }
+        elif step == 86400000:
+            # Daily step
+            # expected to have 30+ days of data
+            seasonality_kwargs = {
+                'daily_seasonality': True,
+                'weekly_seasonality': True,
+                'yearly_seasonality': False,
+            }
+        elif step == 3600000:
+            # Hourly step
+            # expected to have 30+ days of data
+            seasonality_kwargs = {
+                'daily_seasonality': True,
+                'weekly_seasonality': True,
+                'yearly_seasonality': False,
+            }
+        model = Prophet(
+            changepoint_prior_scale=0.1,
+            changepoint_range=0.9,
+            growth='linear',
+            # mcmc_samples=100,
+            n_changepoints=5,
+            seasonality_mode='multiplicative',
+            seasonality_prior_scale=30.0,
+            **seasonality_kwargs,
+        )
+        normalization = dict()
+    else:
+        # Load trained model and normalization from disk
+        model, normalization = load_model_and_normalization(
+            model_rel_dirpath=model_path, 
+            model_type='xgb' if step == 3600000 else 'prophet'
+        )
+    return model, normalization
