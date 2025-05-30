@@ -6,7 +6,7 @@ WORKDIR /workspace/server
 
 # Install required packages including Python and pip
 RUN apt update && \
-    apt-get -y install git unzip wget tmux curl python3.10 python3-pip python3-dev build-essential && \
+    apt-get -y install git unzip wget tmux curl python3.10 python3-pip python3-dev build-essential telnet netcat-traditional && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip
