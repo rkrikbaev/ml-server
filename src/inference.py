@@ -272,8 +272,8 @@ def predict(
             # TODO: add other regressors
             df_train = pd.DataFrame(
                 {
-                    'ds': pd.to_datetime(timestamps[0], unit='ms'),
-                    'y': y[0],
+                    'ds': pd.to_datetime(timestamps[0][:len(timestamps[0]) // 2], unit='ms'),
+                    'y': y[0][:len(timestamps[0]) // 2],
                 }
             )
             model.fit(df_train)

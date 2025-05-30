@@ -68,7 +68,7 @@ async def _process_data(request: Request):
     y, timestamps = [], []
     for i in range(len(d['task_input'])):
         try:
-            y_, timestamps_ = extract_data(d['task_input'][i])
+            y_, timestamps_ = extract_data(d['task_input'][i], interpolate=not online)
             y.append(y_)
             timestamps.append(timestamps_)
         except Exception as e:
