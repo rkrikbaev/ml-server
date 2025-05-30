@@ -326,7 +326,7 @@ def init_model(model_path: str | None, step: int):
             # expected to have 30+ days of data
             seasonality_kwargs = {
                 'daily_seasonality': True,
-                'weekly_seasonality': True,
+                'weekly_seasonality': False,
                 'yearly_seasonality': False,
             }
         model = Prophet(
