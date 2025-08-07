@@ -19,6 +19,10 @@ from xgboost import XGBRegressor
 from typing import List, Dict, Tuple, Literal
 
 
+class SbreModel:
+    pass
+
+
 # Normalize colnames
 # https://stackoverflow.com/a/14173535
 RU_TO_EN_SYMBOLS = (

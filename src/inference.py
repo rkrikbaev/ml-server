@@ -16,7 +16,7 @@ from typing import List, Dict
 from prophet import Prophet
 from xgboost import XGBRegressor
 
-from utils import timestamps_to_calendar_features, load_model_and_normalization
+from utils import timestamps_to_calendar_features, load_model_and_normalization, SbreModel
 
 
 def get_last_past_index(timestamps: np.ndarray) -> int:
@@ -266,6 +266,10 @@ def predict(
         sub, div = normalization['sub'], normalization['div']
         y_pred = y_pred / train_to_test_correction_ratio
         y_pred = y_pred * div['y'] + sub['y']
+    elif isinstance(model, SbreModel):
+        # Return the first input as prediction
+        y_pred = y[0]
+        pred_timestamps = timestamps[0]
     else:
         if online:
             # Fit the model on the provided data
@@ -340,6 +344,8 @@ def init_model(model_path: str | None, step: int):
             **seasonality_kwargs,
         )
         normalization = dict()
+    elif model_path == 'sbre':
+        return SbreModel(), {}
     else:
         # Load trained model and normalization from disk
         model, normalization = load_model_and_normalization(
