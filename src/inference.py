@@ -268,8 +268,8 @@ def predict(
         y_pred = y_pred * div['y'] + sub['y']
     elif isinstance(model, SbreModel):
         # Return the first input as prediction
-        y_pred = y[0]
-        pred_timestamps = timestamps[0]
+        y_pred = y[1]
+        pred_timestamps = timestamps[1]
     else:
         if online:
             # Fit the model on the provided data
