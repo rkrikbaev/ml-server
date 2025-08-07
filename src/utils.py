@@ -255,6 +255,8 @@ def nan_helper(y):
 
 
 def interpolate_nan_1d(y):
+    if np.all(np.isnan(y)):
+        return y
     nans, x = nan_helper(y)
     y[nans] = np.interp(x(nans), x(~nans), y[~nans])
     return y
