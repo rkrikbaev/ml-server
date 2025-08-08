@@ -306,7 +306,7 @@ def predict(
 
 
 def init_model(model_path: str | None, step: int):
-    if model_path == '':
+    if model_path == 'none':
         # Create new Prophet model to train on the provided inputs
         # and no normalization
         if step == 2592000000:

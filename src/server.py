@@ -48,7 +48,7 @@ async def _process_data(request: Request):
         period = d["period"]  #model_output_range
         task_id = d["task_id"]
         model_path = d.get("model_path", None)
-        online = model_path == ''
+        online = model_path == 'none'
         task_message = f'Запущена задача с идентификатором [{task_id}]'
     except KeyError as e:
         task_status = "ОШИБКА"
@@ -79,7 +79,7 @@ async def _process_data(request: Request):
     
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
 
-    if not model:
+    if (not model and not online):
         preds, pred_timestamps = predict_default(
             y=y,
             timestamps=timestamps,
