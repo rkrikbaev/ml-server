@@ -336,7 +336,7 @@ def init_model(model_path: str | None, step: int):
         model = Prophet(
             changepoint_prior_scale=0.1,
             changepoint_range=0.9,
-            growth='linear',
+            growth='flat',
             # mcmc_samples=100,
             n_changepoints=5,
             seasonality_mode='multiplicative',
