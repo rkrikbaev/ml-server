@@ -272,12 +272,23 @@ def predict(
         pred_timestamps = timestamps[1]
     else:
         if online:
+            # If too few data points are not NaN, either 
+            # use the first non-NaN input as prediction
+            # or fill with 0
+            y = y[0][:len(timestamps[0]) // 2]
+            y_non_nan = ~np.isnan(y)
+            n_non_nans = y_non_nan.sum()
+            if n_non_nans == 0:
+                y = np.zeros_like(y)
+            elif n_non_nans == 1:
+                y = np.full_like(y, y[y_non_nan][0])
+
             # Fit the model on the provided data
             # TODO: add other regressors
             df_train = pd.DataFrame(
                 {
                     'ds': pd.to_datetime(timestamps[0][:len(timestamps[0]) // 2], unit='ms'),
-                    'y': y[0][:len(timestamps[0]) // 2],
+                    'y': y,
                 }
             )
             model.fit(df_train)
