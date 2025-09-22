@@ -190,6 +190,10 @@ def predict(
         )
         logger.info(f'X.shape: {X.shape}')
 
+        # If any of the inputs is all NaNs, return zeros
+        if any([np.all(np.isnan(y_)) for y_ in y]):
+            return np.zeros(output_range), pred_timestamps
+
         X = X[None, :]
         y_pred = model.predict(X)[0]
 
@@ -269,6 +273,11 @@ def predict(
     elif isinstance(model, SbreModel):
         # Return the first input as prediction
         y_pred = y[1]
+
+        # If it is all NaNs, return zeros
+        if np.all(np.isnan(y_pred)):
+            y_pred = np.zeros_like(y_pred)
+        
         pred_timestamps = timestamps[1]
     else:
         if online:

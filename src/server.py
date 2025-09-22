@@ -12,6 +12,7 @@ logger = logging.getLogger(__file__)
 import http
 import asyncio
 import uvicorn
+import numpy as np
 from fastapi import FastAPI, Request
 
 from inference import init_model, predict, predict_default
@@ -63,8 +64,6 @@ async def _process_data(request: Request):
             'task_output': []
         }
 
-    model, normalization = init_model(model_path, step)
-
     y, timestamps = [], []
     for i in range(len(d['task_input'])):
         try:
@@ -77,6 +76,15 @@ async def _process_data(request: Request):
             logger.error(e)
             return r
     
+    # Fall back to online from sbre
+    # if no sbre data is here and 
+    # the input for online is present
+    if model_path == 'sbre' and np.all(np.isnan(y[1])) and not np.all(np.isnan(y[0])):
+        model_path = 'none'
+        online = True
+
+    model, normalization = init_model(model_path, step)
+
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
 
     if (not model and not online):
