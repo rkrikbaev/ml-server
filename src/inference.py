@@ -69,13 +69,13 @@ def extract_features(
     logger.info(f'len(pred_timestamps): {len(pred_timestamps)}, pred_timestamps: {pred_timestamps}')
 
     # Calculate ratio of train period month mean 
-    # to current month mean
+    # to current mean
     ratio = 1.0
-    current_month_mean = y[-1][-1]
-    if current_month_mean is not None:
-        current_month_mean = (current_month_mean - sub['y']) / div['y']
+    current_mean = np.mean(y[0])
+    if current_mean is not None:
+        current_mean = (current_mean - sub['y']) / div['y']
         month = str(get_month(timestamps[0]))
-        ratio = month_mean[month] / current_month_mean
+        ratio = month_mean[month] / current_mean
 
     # Shallow copy as we modify the lists (not arrays in it)
     # below
