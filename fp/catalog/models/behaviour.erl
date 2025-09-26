@@ -60,8 +60,7 @@ add_model_for_worker(Object)->
         case Workers of
             [Worker | _] ->
                 WorkerObject = ?OBJECT(Worker),
-                % fp_db:edit_object(WorkerObject, #{<<"model_name">> => ObjectPath}),
-                fp_prototype_model_control:load_model_settings(WorkerObject, Object),
+                fp_db:edit_object(WorkerObject, #{<<"model_name">> => ObjectPath}),
                 ?LOGINFO("Workers model_name is edit ~p", [Worker]);
             [] -> 
                 ?LOGINFO("Workers field is empty!")

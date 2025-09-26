@@ -22,8 +22,7 @@
     on_create/1,
     on_delete/1,
     on_edit/1,
-    on_cycle/1,
-    load_model_settings/2
+    on_cycle/1
   ]).
   
 
@@ -33,11 +32,11 @@ on_create(_Object)->
 on_edit( Object )->
     ?LOGINFO("prototypes/model_control:on_edit"),
     fp_util:check_changes(Object, [
-        {fun load_model_settings/1, [<<"model_name">>, <<"model_edit_trigger">>]},
         {fun execute_model/1, [<<"run_task">>]},
         {fun load_data/1, [<<"output_data">>]}
         
     ]),
+    ?LOGINFO("prototypes/model_control:on_edit ok"),
     ok.
     
 on_delete( Object )->
@@ -58,55 +57,31 @@ on_cycle( FolderPath )->
     ]).
 
 execute_model(Object)->
+    ?LOGINFO("before"),
     project_model_service:run_task(Object).
-    
-load_model_settings(Object)->
-    ?LOGINFO("model_control load_model_settings"),
-    {ok, Name} = fp_db:read_field(Object, <<".name">>),
-    try
-        case fp_db:read_field(Object, <<"model_name">>) of 
-            {ok, ModelNameID} -> 
-                ?LOGINFO("Load data from this model ~p in this model control ~p", [ModelNameID, Name]),
-                load_model_settings(Object, ?OBJECT(ModelNameID));
-            {ok, none} -> 
-                ?LOGINFO("This modal control ~p does't have a worker", [Name]),
-                ok
-        end
-    catch
-        _:Error -> ?LOGERROR("model settings read error ~p",[ Error ])
-    end.
-    
-load_model_settings(Object, CatalogObject)->
-    #{
-        <<"model_input">> := ModelInput, 
-        <<"input_range">> := InputRange, 
-        <<"output_range">> := OutputRange, 
-        <<"model_port">> := ModelPort, 
-        <<"model_host">> := ModelHost,
-        <<"model_output">> := ModelOutput,
-        <<"model_path">> := ModelPath,
-        <<"step">> := Step
-    } = fp_db:read_fields(CatalogObject, [<<"model_input">>, <<"input_range">>, <<"output_range">>, <<"model_port">>, <<"model_host">>, <<"model_output">>, <<"model_path">>, <<"step">>]),
-    fp_db:edit_object(Object, #{
-        <<"model_input">> => ModelInput, 
-        <<"model_input_range">> => InputRange, 
-        <<"model_output_range">> => OutputRange, 
-        <<"model_port">> => ModelPort,
-        <<"model_host">> => ModelHost,
-        <<"model_output">> => ModelOutput,
-        <<"model_path">> => ModelPath,
-        <<"model_input_granularity">> => Step
-    }),
-    ok.
 
 load_data(Object)->
-    #{ <<"output_data">>:=BinaryString, <<"model_output">>:=Archive } = fp_db:read_fields(Object, [<<"output_data">>,<<"model_output">>]),
+    ?LOGINFO("load_data"),
+    % Get output_data & model_name
+    #{ <<"output_data">>:=BinaryString, <<"model_name">>:=ModelNameID } = fp_db:read_fields(Object, [<<"output_data">>,<<"model_name">>]),
+    
+    % Get model_output
+    ?LOGINFO("ModelNameID: ~p", [ModelNameID]),
+    CatalogObject = try
+        ?OBJECT(ModelNameID)
+    catch
+      E0:R0:C0 -> 
+        ?LOGINFO("~p ~p ~p",[E0,R0,C0])
+    end,
+    {ok, Archive} = fp_db:read_field(CatalogObject, <<"model_output">>),
+    
+    
     Data = binary_to_term(BinaryString),
     case project_model_service:write_to_db(Data, Archive) of
         {ok,[DataAsBinString,From,To]}->
-            ?LOGINFO( "Write to DB success",[] );
+            ?LOGINFO("Write to DB success");
         {error,_}->
-            ?LOGERROR( "Write to DB failed", [] )
+            ?LOGERROR("Write to DB failed")
     end.
             
     

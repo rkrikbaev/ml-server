@@ -25,49 +25,47 @@
   ]).
     
 run_task(Obj)->
-
-    fp:log(info, "model_service: Run the task..."),
-    fp:log(info, "model_service: at path: ~p", [fp_db:to_path(Obj)]),
-
-    Fields = [
-                <<"model_path">>,
-                <<"model_input">>,
-                <<"model_input_granularity">>,
-                <<"model_input_range">>,
-                <<"model_output_range">>,
-                <<"model_host">>,
-                <<"model_port">>,
-                <<"model_output">>],
-     
-    R = try
-            fp_db:read_fields( Obj, Fields )
-        catch
-          E0:R0:C0 -> 
-            fp:log(info, "model_service: ~p ~p ~p",[E0,R0,C0])
-        end,
-                                                            
-    #{
-        <<"model_path">>:=ModelPath,
-        <<"model_input">>:= Archives,
-        <<"model_input_granularity">> := Step,
-        <<"model_input_range">>:= InputWindow,
-        <<"model_output_range">>:= OutputWindow,
-        <<"model_host">>:= Host,
-        <<"model_port">>:= Port,
-        <<"model_output">>:= OutputArchive} = R,
-        
-    fp:log(info, "model_service: OutputArchive: ~p", [OutputArchive]),
-        
-    fp:log(info, "model_service: read the object: ~p", [R]),
+    ObjPath = fp_db:to_path(Obj),
+    ModelOutput = ?OID(<<ObjPath/binary, "/archives/out_value">>),
     
-    % TODO: fix input type of model_input_granularity to be int not string
-    % Set default values if any of the variables are 'none'
-    OutputWindow1 = case OutputWindow of _ when is_number(OutputWindow) -> OutputWindow; _ -> 24 end,
-    InputWindow1 = case InputWindow of _ when is_number(InputWindow) -> InputWindow; _ -> 24 end,
-    Step1 = case Step of _ when is_number(Step) -> Step*1000; _ -> 3600000 end,
+    ?LOGINFO("model_service: Run the task..."),
+    ?LOGINFO("model_service: at path: ~p", [ObjPath]),
+
+    {ok, ModelNameID} = fp_db:read_field(Obj, <<"model_name">>),
+    ?LOGINFO("model_service: ModelNameID: ~p", [ModelNameID]),
+    CatalogObject = try
+        ?OBJECT(ModelNameID)
+    catch
+      E0:R0:C0 -> 
+        ?LOGINFO("model_service: ~p ~p ~p",[E0,R0,C0])
+    end,
+    
+    #{
+        <<"input_range">> := InputRange, 
+        <<"output_range">> := OutputRange, 
+        <<"model_path">> := ModelPath,
+        <<"step">> := Step,
+        <<"model_input">> := ModelInput, 
+        <<"model_port">> := Port, 
+        <<"model_host">> := Host
+    } = try
+        fp_db:read_fields( CatalogObject, [<<"input_range">>, <<"output_range">>, <<"model_path">>, <<"step">>, <<"model_input">>, <<"model_port">>, <<"model_host">>, <<"model_output">>] )
+    catch
+      E1:R1:C1 -> 
+        ?LOGINFO("model_service: ~p ~p ~p",[E1,R1,C1])
+    end,
+    
+    ?LOGINFO("~p ~p ~p ~p ~p ~p ~p ~p", [ModelPath, InputRange, OutputRange, Step, ModelInput, Host, Port, ModelOutput]),
+    
+    run_task(Obj, ModelPath, InputRange, OutputRange, Step*1000, ModelInput, Host, Port, ModelOutput),
+    
+    #{}.
+    
+    
+run_task(Obj, ModelPath, InputRange, OutputRange, Step, ModelInput, Host, Port, ModelOutput) ->
     try
-        Dataset = [ read_from_db(InputWindow1, Step1, A) || A<-Archives ],
-        case request_body(ModelPath, OutputWindow1, Step1, Dataset) of
+        Dataset = [ read_from_db(InputRange, Step, A) || A<-ModelInput ],
+        case request_body(ModelPath, InputRange, Step, Dataset) of
                {ok, Req} ->
                     Url = get_url(Host, Port),
                     case call(Url, Req) of
@@ -77,7 +75,7 @@ run_task(Obj)->
                             case transform(TaskOutput) of
                                  {ok, Data} ->         
                                     ?LOGINFO("Data after transformation: ~p", [Data] ),
-                                    case write_to_db(Data, OutputArchive) of
+                                    case write_to_db(Data, ModelOutput) of
                                         {ok,[DataAsBinString,From,To]}->
                                             ?LOGINFO( "Write to DB success" ),
                                             fp_db:edit_object(Obj, #{
@@ -87,8 +85,9 @@ run_task(Obj)->
                                                 <<"task_from">>=>From,
                                                 <<"task_to">>=>To,
                                                 <<"output_data">>=>DataAsBinString
-                                            });
+                                            }),
                                             
+                                            ?LOGINFO( "Edit object success" );
                                         {error,_}->
                                             ?LOGERROR( "Write to DB failed", [])
                                     end;
@@ -104,7 +103,9 @@ run_task(Obj)->
     catch
       E:Rs:C -> 
         ?LOGINFO("model_service: ~p ~p ~p",[E,Rs,C])
-    end.
+    end,
+    
+    ?LOGINFO("model_service: success").
     
 
 read_from_db(InputWindow, Step, Archive)->
@@ -153,11 +154,11 @@ call(Url, DataMap) ->
                 {ok, Response};  % Successful response
 
             {ok, {{_, Code, _}, _, _}} ->
-                fp:log(error, "model_service: Unexpected response code: ~p", [Code]),
+                ?LOGERROR("model_service: Unexpected response code: ~p", [Code]),
                 {error, {unexpected_response_code, Code}};
                 
             {error, Error} ->
-                fp:log(error, "model_service: HTTP request error: ~p", [Error]),
+                ?LOGERROR("model_service: HTTP request error: ~p", [Error]),
                 {error, {http_error, Error}}
         end
         
