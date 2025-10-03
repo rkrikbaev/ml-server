@@ -305,8 +305,6 @@ def predict(
         # The data interval middle is actually the current time
         pred_start_dt = pd.to_datetime(timestamps[0][len(timestamps[0]) // 2], unit='ms')
         if step == 2592000000:
-            assert not online, "Prophet model should not be used in online mode for monthly step"
-
             # Round to next month start
             pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
