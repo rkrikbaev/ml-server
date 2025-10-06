@@ -41,28 +41,32 @@ run_task(Obj)->
     end,
     
     #{
+        % Lists of parameters, i-th corresponds to i-th model
         <<"input_range">> := InputRange, 
-        <<"output_range">> := OutputRange, 
         <<"model_path">> := ModelPath,
         <<"step">> := Step,
+        
+        % Common for all the models
         <<"model_input">> := ModelInput, 
         <<"model_port">> := Port, 
         <<"model_host">> := Host
     } = try
-        fp_db:read_fields( CatalogObject, [<<"input_range">>, <<"output_range">>, <<"model_path">>, <<"step">>, <<"model_input">>, <<"model_port">>, <<"model_host">>, <<"model_output">>] )
+        fp_db:read_fields( CatalogObject, [<<"input_range">>, <<"output_range">>, <<"model_path">>, <<"step">>, <<"model_input">>, <<"model_port">>, <<"model_host">>] )
     catch
       E1:R1:C1 -> 
         ?LOGINFO("model_service: ~p ~p ~p",[E1,R1,C1])
     end,
     
-    ?LOGINFO("~p ~p ~p ~p ~p ~p ~p ~p", [ModelPath, InputRange, OutputRange, Step, ModelInput, Host, Port, ModelOutput]),
+    ?LOGINFO("~p ~p ~p ~p ~p ~p ~p", [ModelPath, InputRange, Step, ModelInput, Host, Port, ModelOutput]),
     
-    run_task(Obj, ModelPath, InputRange, OutputRange, Step*1000, ModelInput, Host, Port, ModelOutput),
+    % Iterate over all the models
+    Z = lists:zip3(InputRange, ModelPath, Step),
+    [ run_task(Obj, M, I, S*1000, ModelInput, Host, Port, ModelOutput) || {I, M, S} <- Z ],
     
     #{}.
     
     
-run_task(Obj, ModelPath, InputRange, OutputRange, Step, ModelInput, Host, Port, ModelOutput) ->
+run_task(Obj, ModelPath, InputRange, Step, ModelInput, Host, Port, ModelOutput) ->
     try
         Dataset = [ read_from_db(InputRange, Step, A) || A<-ModelInput ],
         case request_body(ModelPath, InputRange, Step, Dataset) of

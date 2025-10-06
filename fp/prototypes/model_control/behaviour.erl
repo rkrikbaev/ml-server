@@ -62,22 +62,18 @@ execute_model(Object)->
 
 load_data(Object)->
     ?LOGINFO("load_data"),
-    % Get output_data & model_name
-    #{ <<"output_data">>:=BinaryString, <<"model_name">>:=ModelNameID } = fp_db:read_fields(Object, [<<"output_data">>,<<"model_name">>]),
+    % Get output_data, model_name & path
+    #{ 
+        <<"output_data">> := BinaryString, 
+        <<"model_name">> := ModelNameID, 
+        <<".path">> := ObjectPath
+    } = fp_db:read_fields(Object, [<<"output_data">>, <<"model_name">>, <<".path">>]),
     
-    % Get model_output
-    ?LOGINFO("ModelNameID: ~p", [ModelNameID]),
-    CatalogObject = try
-        ?OBJECT(ModelNameID)
-    catch
-      E0:R0:C0 -> 
-        ?LOGINFO("~p ~p ~p",[E0,R0,C0])
-    end,
-    {ok, Archive} = fp_db:read_field(CatalogObject, <<"model_output">>),
-    
+    % Get model_output as Object + "/archives/out_value
+    ModelOutput = ?OID(<<ObjectPath/binary, "/archives/out_value">>),
     
     Data = binary_to_term(BinaryString),
-    case project_model_service:write_to_db(Data, Archive) of
+    case project_model_service:write_to_db(Data, ModelOutput) of
         {ok,[DataAsBinString,From,To]}->
             ?LOGINFO("Write to DB success");
         {error,_}->

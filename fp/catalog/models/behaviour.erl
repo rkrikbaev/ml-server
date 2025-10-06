@@ -41,7 +41,6 @@ on_edit(Object)->
         <<"output_range">>,
         <<"settings">>,
         <<"step">>,
-        <<"model_output">>,
         <<"model_port">>,
         <<"model_host">>
         ]}
@@ -54,17 +53,11 @@ on_delete(Object)->
 %% ------------------------ API ------------------------------
 add_model_for_worker(Object)->
     {ok, ObjectPath} = fp_db:read_field(Object, <<".path">>),
-    {ok, Workers} = fp_db:read_field(Object, <<"workers">>),
+    {ok, Worker} = fp_db:read_field(Object, <<"worker">>),
     
-    try
-        case Workers of
-            [Worker | _] ->
-                WorkerObject = ?OBJECT(Worker),
-                fp_db:edit_object(WorkerObject, #{<<"model_name">> => ObjectPath}),
-                ?LOGINFO("Workers model_name is edit ~p", [Worker]);
-            [] -> 
-                ?LOGINFO("Workers field is empty!")
-        end
+    try ?OBJECT(Worker) of WorkerObject ->
+        fp_db:edit_object(WorkerObject, #{<<"model_name">> => ObjectPath}),
+        ?LOGINFO("Workers model_name is edit ~p", [Worker])
     catch
         _:Error -> {error, Error},
         ?LOGINFO("catalog/models:add_model_for_worker error: ~p", [Error])
@@ -72,45 +65,29 @@ add_model_for_worker(Object)->
     ok.
     
 delete_model_for_worker(Object)->
-    {ok, Workers} = fp_db:read_field(Object, <<"workers">>),
-    try
-        case Workers of
-            [Worker | _] ->
-                WorkerObject = ?OBJECT(Worker),
-                
-                fp_db:edit_object(WorkerObject, #{
-                    <<"model_name">> => none
-                });
-            [] -> 
-                ?LOGINFO("Worker is not found!")
-        end
+    {ok, Worker} = fp_db:read_field(Object, <<"worker">>),
+    try ?OBJECT(Worker) of WorkerObject ->
+        fp_db:edit_object(WorkerObject, #{
+            <<"model_name">> => none
+        })
     catch
         _:Error -> {error, Error},
         ?LOGINFO("catalog/models:delete_model_for_worker error: ~p", [Error])
-        
     end,
-    
     ok.
   
 edit_data_for_worker(Object) ->
     {ok, ObjectPath} = fp_db:read_field(Object, <<".path">>),
-    {ok, Workers} = fp_db:read_field(Object, <<"workers">>),
+    {ok, Worker} = fp_db:read_field(Object, <<"worker">>),
 
-    try
-        case Workers of
-            [Worker | _] ->
-                ?LOGINFO("catalog/models:edit_data_for_worker Worker = ~p", [Worker]),
-                WorkerObject = ?OBJECT(Worker),
-            
-                ?LOGINFO("Model is edit, edit object for ~p", [Worker]),
-                
-                fp_db:edit_object(WorkerObject, #{
-                    <<"model_name">> => ObjectPath,
-                    <<"model_edit_trigger">> => rand:uniform(256) - 1
-                });
-            [] -> 
-                ?LOGINFO("Worker is not found!")
-        end
+    try ?OBJECT(Worker) of WorkerObject ->
+        ?LOGINFO("catalog/models:edit_data_for_worker Worker = ~p", [Worker]),
+        ?LOGINFO("Model is edit, edit object for ~p", [Worker]),
+        
+        fp_db:edit_object(WorkerObject, #{
+            <<"model_name">> => ObjectPath,
+            <<"model_edit_trigger">> => rand:uniform(256) - 1
+        })
     catch
         _:Error -> {error, Error},
         ?LOGINFO("catalog/models:edit_data_for_worker error: ~p", [Error])
