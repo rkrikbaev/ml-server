@@ -49,22 +49,20 @@ function(VARS,element,context){
         ".fp_path",
         "title",
         "input_range",
-        "model_input",
+        "input",
         "model_path",
         "output_range",
         "step",
-        "model_port",
-        "model_host",
-        "workers"
+        "port",
+        "host"
     ].join(", ");
     
-    let object_type = 'models';
+    let object_type = 'model_control';
     
-    let baseFilter = `and(.pattern=$oid('/root/FP/catalogs/${object_type}/fields'))`;
+    let baseFilter = `and(.pattern=$oid('/root/FP/prototypes/${object_type}/fields'))`;
     const query = `get ${fields} from * where ${baseFilter} format $to_json`;
     const connection = context.get_connection();
 
-    
     const step_ms = 3600000;
     const n_values = 24; 
     let from = +new Date();
@@ -97,12 +95,12 @@ function(VARS,element,context){
 
             // Forecast
             let archive_gt = "";
-            if (data_orig[i]["model_input"] !== null && data_orig[i]["model_input"].length > 0) {
-                archive_gt = data_orig[i]["model_input"][0];
+            if (data_orig[i]["input"] !== null && data_orig[i]["input"].length > 0) {
+                archive_gt = data_orig[i]["input"][0];
             }
             let archive_forecast = "";
-            if (data_orig[i]["workers"] !== null && data_orig[i]["workers"].length > 0) {
-                archive_forecast = data_orig[i]["workers"][0] + "/archives/out_value";
+            if (data_orig[i][".fp_path"] !== null && data_orig[i][".fp_path"].length > 0) {
+                archive_forecast = data_orig[i][".fp_path"] + "/archives/out_value";
             }
 
             connection.application(
