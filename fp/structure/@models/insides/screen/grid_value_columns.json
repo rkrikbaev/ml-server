@@ -1,0 +1,183 @@
+(() => {
+    function makeLabels(count = 24) {
+          return Array.from({ length: count }, (_, i) => ({
+            view: fp.item.view.primitives.Label,
+            options: {
+              links: {
+                text: {
+                  source: `data@value_${i}`,
+                  handler: (v) => {
+                    if (v && v[1]) {
+                      return Math.round(v[1]);
+                    }
+                    return "";
+                  }
+                }
+              }
+            }
+          }));
+        }
+        
+        let d = makeLabels(24);
+        let header = [   
+            "title",
+            "mean",
+            {
+                view: fp.item.view.controls.Button, 
+                options:{
+                    text: "Просмотр",
+                    events:{
+                        click: (event, data, row) =>{
+                            const {".name": name, ".folder": folder,  "workers": workers, "mean": mean} = row.data.get();
+                            const fp_path = folder + "/" + name;
+                            const main_path = '/root/FP/prototypes/model_control/content';
+                            window.__workers = workers;
+                            window.__mean = mean;
+                            
+                            if(workers.length>=1){
+                                 fp_dev.getConnection().get(`GET view1, icon from * WHERE .path='${ main_path }' format $to_json`, ([item])=> {
+                                      if (item &&  item.view1) {
+                                          let screen = item.view1;
+                                          screen = JSON.parse( screen );
+                                          
+                                          let DialogW = screen.width;
+                                          let DialogH = screen.height;
+                                          
+                                          const id = fp_dev.GUID();
+                                          const title = fp_path.replace("/root/FP/PROJECT/", "");
+                                          
+                                          if(this._dialog){     
+                                             this._dialog.destroy()
+                                          }
+                                
+                                          this._dialog = new fp.item.view.layout.Window({
+                                              view:{
+                                                  view: fp.item.view.primitives.Html,
+                                                  options:{ html:`<div id="${id}"></div>` }
+                                              },
+                                              events:{ 
+                                                  destroy:()=>{
+                                                      screen?.destroy();
+                                                      dialogContext?.clear();
+                                                      delete window.__dialog_screen;
+                                                      delete window.__dialog_screen_trend;
+                                                      delete window.__dialog_screen_button;
+                                                      delete window.__dialog_screen_mean_text;
+                                                      delete window.__dialog_screen_last_update_text;
+                                                      delete window.__dialog_screen_message_text;
+                                                      delete window.__dialog_screen_status_text;
+                                                      delete window.__dialog_screen_modal_name_text;
+                                                      delete window.__dialog_screen_desc;
+                                                      delete window.__dialog_screen_modal_name;
+                                                      delete window.__dialog_screen_alarm;
+                                                      delete window.__dialog_screen_last_update;
+                                                      delete window.__dialog_screen_status;
+                                                      delete window.__dialog_screen_mean;
+                                                      
+                                                    }
+                                              },
+                                              title
+                                          }); 
+                                
+                                            this._dialog.bind("isMaximized", isM => {
+                                                if(window.__dialog_screen){
+                                                    const aW = window.screen.availWidth;
+                                                    const aH = window.screen.availHeight;
+                                                    // Dialog Screen
+                                                    
+                                                    
+                                                    // Dialog Trend
+                                                    let TrendW = window.__dialog_screen_trend._properties.width;
+                                                    let TrendH = window.__dialog_screen_trend._properties.width;
+                                                    
+                                                    // console.log(isM)
+                                                    
+                                                    if(isM) {
+                                                        // Screen and Trend
+                                                        
+                                                        window.__dialog_screen.set({"height": aH, "width": aW});
+                                                        window.__dialog_screen_trend.set({
+                                                            "height": aH - 100,
+                                                            "width": aW - (DialogW - (window.__dialog_screen_trend._properties.left + window.__dialog_screen_trend._properties.width))
+                                                        });
+                                                        
+                                                        // Description text Ui and button
+                                                        window.__dialog_screen_button.set({"left": aW - (DialogW - window.__dialog_screen_button._properties.left)});
+                                                        window.__dialog_screen_mean_text.set({"left": aW - (DialogW - window.__dialog_screen_mean_text._properties.left)});
+                                                        window.__dialog_screen_last_update_text.set({"left": aW - (DialogW - window.__dialog_screen_last_update_text._properties.left)});
+                                                        
+                                                        window.__dialog_screen_message_text.set({"left": aW - (DialogW - window.__dialog_screen_message_text._properties.left)});
+                                                        window.__dialog_screen_status_text.set({"left": aW - (DialogW - window.__dialog_screen_status_text._properties.left)});
+                                                        window.__dialog_screen_modal_name_text.set({"left": aW - (DialogW - window.__dialog_screen_modal_name_text._properties.left)});
+                                                        
+                                                        // Description text
+                                                        window.__dialog_screen_desc.set({"left": aW - (DialogW - window.__dialog_screen_desc._properties.left)});
+                                                        window.__dialog_screen_modal_name.set({"left": aW - (DialogW - window.__dialog_screen_modal_name._properties.left)});
+                                                        window.__dialog_screen_alarm.set({"left": aW - (DialogW - window.__dialog_screen_alarm._properties.left)});
+                                                        
+                                                        window.__dialog_screen_last_update.set({"left": aW - (DialogW - window.__dialog_screen_last_update._properties.left)});
+                                                        window.__dialog_screen_status.set({"left": aW - (DialogW - window.__dialog_screen_status._properties.left)});
+                                                        window.__dialog_screen_mean.set({"left": aW - (DialogW - window.__dialog_screen_mean._properties.left)});
+                                                        
+                                                        
+                                                    } else {
+                                                        
+                                                        DialogW = 1700;
+                                                        DialogH = 700;
+                                                    
+                                                        // Dialog Trend
+                                                        TrendW = 1180;
+                                                        TrendH = 620;
+                                                        
+                                                        // Screen and Trend
+                                                        window.__dialog_screen.set({"height": 700, "width": 1700});
+                                                        window.__dialog_screen_trend.set({"height": 620, "width": 1180});
+                                                        
+                                                        // Description text Ui and button
+                                                        
+                                                        window.__dialog_screen_button.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_button._properties.left))});
+                                                        window.__dialog_screen_mean_text.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_mean_text._properties.left))});
+                                                        window.__dialog_screen_last_update_text.set({"left": Math.abs (aW - (DialogW + window.__dialog_screen_last_update_text._properties.left))});
+                                                        
+                                                        window.__dialog_screen_message_text.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_message_text._properties.left))});
+                                                        window.__dialog_screen_status_text.set({"left": Math.abs ( aW - (DialogW + window.__dialog_screen_status_text._properties.left))});
+                                                        window.__dialog_screen_modal_name_text.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_modal_name_text._properties.left))});
+                                                        
+                                                        // Description text
+                                                        window.__dialog_screen_desc.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_desc._properties.left))});
+                                                        window.__dialog_screen_modal_name.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_modal_name._properties.left))});
+                                                        window.__dialog_screen_alarm.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_alarm._properties.left))});
+                                                        
+                                                        window.__dialog_screen_last_update.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_last_update._properties.left))});
+                                                        window.__dialog_screen_status.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_status._properties.left))});
+                                                        window.__dialog_screen_mean.set({"left": Math.abs( aW - (DialogW + window.__dialog_screen_mean._properties.left))});
+                                                    }
+                                                }
+                                            });
+                                          
+                                          screen = new fp.ui.Screen($("#"+id), screen);
+                                          screen.get_element().css({position: "relative"});
+                                          
+                                          const connection = fp_dev.getConnection();
+                                          const dialogContext = new fp.Context( connection );
+                                          
+                                          dialogContext.link( screen );
+                                      
+                                      }else{
+                                          fp_dev.error(fp_dev.text("invalid screen"));
+                                      }
+                                    
+                                },() => {
+                                    fp.rt.select_screen(fp_path);
+                                }, undefined);
+                            } else {  
+                                fp_dev.error(fp_dev.text("workers is none"));  
+                            }
+                        }
+                    }
+                }
+            }
+        ];
+        
+        return [...header, ...d];
+})()

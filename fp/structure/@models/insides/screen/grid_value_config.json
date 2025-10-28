@@ -1,0 +1,149 @@
+{
+    "pager": {
+        "page": 1,
+        "pageSize":30,
+        "pageSizeValues": [30, 60, 90],
+        "maxVisible": 25  
+    },
+    "itemRelations":{
+        "isSource":true,
+        "onCommit":"commit"
+    },
+    footer: [
+        
+    ],
+    row: {
+      events: {
+        dblClick: (e, rowController, GridController) => {
+          const td = e.target.closest('td');
+          if (!td) return;
+    
+          const tr = e.currentTarget;
+          const cells = Array.from(tr.children);
+          const colIndex = cells.indexOf(td) - 3; 
+    
+          if(colIndex >= 0){
+              const rowData = rowController.get("data").get();
+              let value = rowData["value_" + colIndex];
+              let ts = value[0]
+              value = value[1];
+              
+              const data = {
+                  ".name" : rowData[".name"],
+                  ".folder": rowData[".folder"],
+                  "archive": rowData["model_input"][0],
+                  value,
+                  ts
+              }
+              
+               class Form extends fp.item.view.Item {
+                    static markup = `<div>
+                        <div>
+                            <div style="justify-content: space-between; gap: 0.5em;">
+                                <div name="archive"></div>
+                                <div name="ts"></div>
+                                <div name="value"></div>
+                            </div>
+                        </div>
+                    </div>`;
+                    
+                    widgets() {
+                        return {
+                            archive: {
+                                view: fp.item.view.layout.FormField,
+                                options: {
+                                    vertical:false,
+                                    name:fp_dev.text("Archive"),
+                                    value:{
+                                        view: fp.item.view.primitives.Label,
+                                        options: {
+                                            links: {
+                                                text: {source: "data@archive", handler: archive => {
+                                                    return archive.replace("/root/FP/PROJECT/", "");
+                                                }}
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            ts: {
+                                view: fp.item.view.layout.FormField,
+                                options: {
+                                    name:fp_dev.text("Time"),
+                                    value:{
+                                        view: fp.item.view.primitives.Label,
+                                        options: {
+                                            links: {
+                                                text: {source: "data@ts", handler: ts => {
+                                                    return fp_dev.datetimeToString(ts);
+                                                }}
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            value: {
+                                view: fp.item.view.layout.FormField,
+                                options: {
+                                    name:"Value",
+                                    vertical: false,
+                                    value:{
+                                        view: fp.item.view.controls.NumberInput,
+                                        options: {
+                                            links:{ value:"value" },
+                                            events:{ value:"value" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Form.extend();
+                
+                const controller = new fp.item.controllers.Item({
+                    schema:{
+                        ".name":{ type: fp.item.types.primitives.String },
+                        ".folder":{ type: fp.item.types.primitives.String },
+                        archive:{ type: fp.item.types.primitives.String },
+                        ts:{ type: fp.item.types.primitives.Integer },
+                        value:{ type: fp.item.types.primitives.Integer } 
+                        
+                    },
+                    autoCommit:false,
+                    data
+                });
+                
+                controller.bind("commit",() => {
+                    const {archive, ts, value} = controller.get();
+                    
+                    const ecomet = fp_dev.getConnection();
+                    fp_dev.yesno(fp_dev.text("Изменить ?"),function(){
+                        ecomet.application("fp_userlib_archive","write2archive",{archive, "ts": ts, value}, function(Item){
+                            let res = [ts,value];
+                            console.log(res)
+                            rowController._controller.get("data").set({[`value_${colIndex}`]: res});
+                            fp_dev.notify("Архив успешно изменен");
+                        },fp_dev.error,3000);
+                    });
+               
+                });
+                
+                const dialog = new fp.item.view.layout.FormWindow({
+                    title: "Edit object",
+                    data:controller,
+                    view:{
+                        view:Form,
+                        options:{}
+                    },
+                    events:{
+                        destroy:()=> {
+                            controller.destroy();
+                        }
+                    }
+                });
+            }
+        }
+      }
+    }
+}
