@@ -45,8 +45,8 @@ async def _process_data(request: Request):
     r = dict()
 
     try:
-        step = d["step"] #model_input_granularity
-        period = d["period"]  #model_output_range
+        step = d["step"]
+        period = d["period"]
         task_id = d["task_id"]
         model_path = d.get("model_path", None)
         online = model_path == 'none'
