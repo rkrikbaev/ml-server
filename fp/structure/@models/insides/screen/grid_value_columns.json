@@ -28,13 +28,14 @@
                     text: "Просмотр",
                     events:{
                         click: (event, data, row) =>{
-                            const {".name": name, ".folder": folder,  "workers": workers, "mean": mean} = row.data.get();
+                            const {".name": name, ".folder": folder, ".fp_path": worker, "mean": mean} = row.data.get();
                             const fp_path = folder + "/" + name;
                             const main_path = '/root/FP/prototypes/model_control/content';
-                            window.__workers = workers;
+                            window.__worker = worker;
                             window.__mean = mean;
+                            console.log(row.data.get());
                             
-                            if(workers.length>=1){
+                            if(worker !== null && worker !== undefined && worker.length > 0){
                                  fp_dev.getConnection().get(`GET view1, icon from * WHERE .path='${ main_path }' format $to_json`, ([item])=> {
                                       if (item &&  item.view1) {
                                           let screen = item.view1;
@@ -171,7 +172,7 @@
                                     fp.rt.select_screen(fp_path);
                                 }, undefined);
                             } else {  
-                                fp_dev.error(fp_dev.text("workers is none"));  
+                                fp_dev.error(fp_dev.text("worker is none"));  
                             }
                         }
                     }

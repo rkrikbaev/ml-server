@@ -31,7 +31,7 @@
               const data = {
                   ".name" : rowData[".name"],
                   ".folder": rowData[".folder"],
-                  "archive": rowData["model_input"][0],
+                  "archive": rowData["input"][0],
                   value,
                   ts
               }
