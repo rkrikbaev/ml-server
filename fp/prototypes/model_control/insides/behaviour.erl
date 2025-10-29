@@ -32,7 +32,6 @@
 
 
 on_create(_Object)->
-    update_url(_Object),
     ok.
 
 on_edit( Object )->
@@ -95,7 +94,7 @@ update_url(Object)->
     fp_db:edit_object(
         fp_db:open(ConnectionPath),
         #{
-            <<"url">> => <<"http://", Host, ":", Port/binary, "/predict">>
+            <<"url">> => <<"http://", Host/binary, ":", Port/binary, "/predict">>
         }
     ).
     
