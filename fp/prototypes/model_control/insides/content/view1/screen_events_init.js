@@ -14,11 +14,19 @@ async function(VARS,element,context){
     console.log(path);
 
     if(path !== null && path !== undefined && path.length > 0){
-      const query = `GET input from * WHERE AND(.path = '${path}', .pattern = $oid('${pattern}') )`;
+      const query = `GET task_status, task_message, task_updated, title, input from * WHERE AND(.path = '${path}', .pattern = $oid('${pattern}') )`;
       let arr = [];
       
       context.get_connection().find(query, async (result) => {
-          // console.log(result);
+          // Set status fields
+          if(result.set.length >= 1){
+              context.__status.set({value : result.set[0].fields.task_status});
+              context.__message.set({value : result.set[0].fields.task_message});
+              context.__updated.set({value : result.set[0].fields.task_updated});
+              context.__model_name.set({value : result.set[0].fields.title});
+          }
+
+          // Init trend archives
           for(let i = 0; i < result.total; i++){
               if(result.set[i].fields.input){
                 for(let j = 0; j < result.set[i].fields.input.length; j++) {

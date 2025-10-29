@@ -1,23 +1,24 @@
 function(VARS,element,context){
-    
     const path = window.__worker;
+    const conn = fp_dev.getConnection();
     
-    if(path !== null && path !== undefined && path.length > 0){
+	if(path && path.length > 0){
         const pattern = '/root/FP/prototypes/model_control/fields';
-        const query = `GET task_status, task_message, task_updated, title from * WHERE AND(.path = '${path}', .pattern = $oid('${pattern}') )`;
         
-        context.get_connection().find(query, (result) => {
+        const query = `GET run_task from * WHERE AND(.path = '${path}', .pattern = $oid('${pattern}') )`;
+        
+        conn.find(query, (result) => {
                 if(result.set.length >= 1){
-                    context.__status.set({value : result.set[0].fields.task_status});
-                    context.__message.set({value : result.set[0].fields.task_message});
-                    context.__updated.set({value : result.set[0].fields.task_updated});
-                    context.__model_name.set({value : result.set[0].fields.title});
+                    let value = result.set[0].fields.run_task;
+                    value = Number.isInteger(value) ? value + 1 : 0;
+                	if (value > 10) {
+                	    value = 0;
+                	};
+                	
+                	conn.edit_object(path, {run_task: value},  () => {console.log("excute data success")}, () => {console.log("excute data error")})
                 }
-                
             },(e) => {
                 console.log(`Set settings data error:`, e);
         },5000);
     }
-    
-    
 }
