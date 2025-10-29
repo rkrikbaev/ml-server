@@ -59,23 +59,31 @@ on_cycle( FolderPath )->
     ]).
 
 execute_model(Object)->
-    project_model_service:run_task(Object).
+    %% Extract connection path from object
+    ObjPath = fp_db:to_path(Object),
+    ConnectionPath = <<ObjPath/binary, "/http_client_connection">>,
+
+    %% Set trigger
+    fp_db:edit_object(
+        fp_db:open(ConnectionPath),
+        #{
+            <<"trigger">> => true
+        }
+    ).
 
 load_data(Object)->
     ObjPath = fp_db:to_path(Object),
-    Archive = ?OID(<<ObjPath/binary, "/archives/out_value">>),
+    ArchivePath = <<ObjPath/binary, "/archives/out_value">>,
 
     #{ <<"output_data">>:=BinaryString} = fp_db:read_fields(Object, [<<"output_data">>]),
     
     Data = binary_to_term(BinaryString),
-    case commit(Data, Archive) of
+    case commit(Data, ArchivePath) of
         {ok,[DataAsBinString,From,To]}->
             ?LOGINFO( "Write to DB success",[] );
         {error,_}->
             ?LOGERROR( "Write to DB failed", [] )
     end.
-            
-    
     
     
 %%=================================================================
