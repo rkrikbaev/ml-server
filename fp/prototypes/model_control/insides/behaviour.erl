@@ -134,30 +134,28 @@ request(ModelPath, Transform) ->
     end.
 
 %%=================================================================
-%% API: Step 2 — handle response and write to archive
-%%  OutArchive задаёт внешний агент при вызове этой функции.
-%%=================================================================
-%%=================================================================
-%% API: Step 2 — handle response and write to archive
-%% MountPoint задаёт внешний агент при вызове этой функции.
+%% API: Step 2 — handle response and write to model's archive
+%% ModelPath задаёт внешний агент при вызове этой функции.
 %%=================================================================
 %% Clause to handle raw binary response (e.g., from an HTTP client)
-response(ResponseBody, MountPoint) when is_binary(ResponseBody) ->
+response(ResponseBody, ModelPath) when is_binary(ResponseBody) ->
     ?LOGDEBUG("Response Body (binary) %p",[ResponseBody]),
     case decode_points(ResponseBody) of
         {ok, ResponseDataList} ->
-            response(ResponseDataList, MountPoint);
+            response(ResponseDataList, ModelPath);
         {error, Reason} ->
             ?LOGERROR("JSON decoding failed: %p", [Reason]),
             {error, Reason}
     end;
 
 %% Original clause to handle decoded list of tuples (or internal calls)
-response(ResponseDataList,MountPoint) when is_list(ResponseDataList) ->
-
+response(ResponseDataList,ModelPath) when is_list(ResponseDataList) ->
+    MountPoint = ?OID(<<ModelPath/binary, "/archives/out_value">>),
+    
     ?LOGDEBUG("Response Data List %p",[ResponseDataList]),
     DataMap = maps:from_list(ResponseDataList),
 
+    %% Handle task_output
     case DataMap of
         %% Handle case where task_output is present but empty
         #{<<"task_output">>:=[]} ->
@@ -186,11 +184,35 @@ response(ResponseDataList,MountPoint) when is_list(ResponseDataList) ->
         _ ->
             ?LOGERROR("Response map missing task_output: %p", [DataMap]),
             {error, missing_task_output}
+    end,
+
+    %% Handle task info (status and message)
+    case DataMap of
+        %% Handle case where all the rest of task info has data
+        #{<<"task_status">>:=TaskStatus, <<"task_message">>:=TaskMessage} ->
+            fp_db:edit_object(
+                fp_db:open(ModelPath),
+                #{
+                    <<"task_status">> => TaskStatus,
+                    <<"task_message">> => TaskMessage,
+                    <<"task_updated">> => list_to_binary(utc_time())
+                }
+            );
+        %% Catch-all for missing task info or unexpected map structure
+        _ ->
+            ?LOGERROR("Response map missing task info: %p", [DataMap]),
+            {error, missing_task_info}
     end.
 
 %%=================================================================
 %% Helpers
 %%=================================================================
+
+utc_time() ->
+    {{Year, Month, Day}, {Hour, Minute, Second}} = calendar:universal_time(),
+    FormattedYear = Year rem 100, % Get last two digits of the year
+    io_lib:format("~2..0B/~2..0B/~2..0B ~2..0B:~2..0B:~2..0B",
+                  [FormattedYear, Month, Day, Hour, Minute, Second]).
 
 ensure_ms(V) ->
     case V of
