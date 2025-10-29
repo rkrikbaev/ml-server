@@ -32,12 +32,13 @@
 
 
 on_create(_Object)->
+    update_url(_Object),
     ok.
 
 on_edit( Object )->
     fp_util:check_changes(Object, [
-        {fun execute_model/1, [<<"run_task">>]},
-        {fun load_data/1, [<<"output_data">>]}
+        {fun load_data/1, [<<"output_data">>]},
+        {fun update_url/1, [<<"host">>, <<"port">>]}
     ]),
     ok.
     
@@ -84,6 +85,19 @@ load_data(Object)->
         {error,_}->
             ?LOGERROR( "Write to DB failed", [] )
     end.
+
+update_url(Object)->
+    ObjPath = fp_db:to_path(Object),
+    ConnectionPath = <<ObjPath/binary, "/http_client_connection">>,
+
+    #{ <<"host">>:=Host, <<"port">>:=Port } = fp_db:read_fields(Object, [<<"host">>, <<"port">>]),
+    
+    fp_db:edit_object(
+        fp_db:open(ConnectionPath),
+        #{
+            <<"url">> => <<"http://", Host, ":", Port/binary, "/predict">>
+        }
+    ).
     
     
 %%=================================================================
