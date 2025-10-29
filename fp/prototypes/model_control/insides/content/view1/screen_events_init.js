@@ -105,7 +105,6 @@ async function(VARS,element,context){
                 }
               }
           );
-          console.log("arr", arr);
           context.__trend_element.pause();
           const oneDay = 24*60*60*1000;
           const from = Math.floor((time - 7 * oneDay) / oneDay) * oneDay - 5 * 60 * 60 * 1000;
@@ -116,11 +115,8 @@ async function(VARS,element,context){
           
           const values = await context.__trend_element.load_from_to({from, to});
           
-          console.log(values);
           context.__trend_element.update_dygraph(values);
-          
           context.__trend_element.init_description();
-          
           context.__trend_element.period.set({value : {from,to}});
       },(e) => {
           console.log(`Set archive error:`, e);
