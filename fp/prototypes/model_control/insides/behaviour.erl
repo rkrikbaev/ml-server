@@ -68,7 +68,7 @@ load_data(Object)->
     #{ <<"output_data">>:=BinaryString} = fp_db:read_fields(Object, [<<"output_data">>]),
     
     Data = binary_to_term(BinaryString),
-    case project_model_service:write_to_db(Data, Archive) of
+    case commit(Data, Archive) of
         {ok,[DataAsBinString,From,To]}->
             ?LOGINFO( "Write to DB success",[] );
         {error,_}->
