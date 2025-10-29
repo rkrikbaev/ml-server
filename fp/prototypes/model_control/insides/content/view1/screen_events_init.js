@@ -22,7 +22,7 @@ async function(VARS,element,context){
           if(result.set.length >= 1){
               context.__status.set({value : result.set[0].fields.task_status});
               context.__message.set({value : result.set[0].fields.task_message});
-              context.__updated.set({value : result.set[0].fields.task_updated});
+            //   context.__updated.set({value : result.set[0].fields.task_updated});
               context.__model_name.set({value : result.set[0].fields.title});
           }
 
