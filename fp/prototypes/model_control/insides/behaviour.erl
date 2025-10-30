@@ -115,23 +115,24 @@ update_url(Object)->
 %% - fun(Series) -> Series      -> анонимная функция
 %% - atom()                     -> локальная функция модуля
 %% - {Module, Function}         -> M:F(Series)
-request(ModelPath, Transform) ->
+request(ModelControlPath, Transform) ->
 
     fp:log(debug, "Run the task...", []),
-    fp:log(debug, "ModelPath: ~p", [ModelPath]),
+    fp:log(debug, "ModelPath: ~p", [ModelControlPath]),
     
-    Fields = [<<"input">>, <<"step">>, <<"input_range">>, <<"output_range">>],
-    case fp_db:read_fields(fp_db:open(ModelPath),Fields) of
+    Fields = [<<"input">>, <<"step">>, <<"input_range">>, <<"output_range">>, <<"model_path">>],
+    case fp_db:read_fields(fp_db:open(ModelControlPath),Fields) of
         ModelConfig when is_map(ModelConfig)->
             ?LOGDEBUG("ModelConfig: ~p", [ModelConfig]),
             ArchivesAsModelInput = maps:get(<<"input">>, ModelConfig, []),
             StepBetweenPoints   = maps:get(<<"step">>, ModelConfig, 3600), % сек
             InputDataWindowRange  = maps:get(<<"input_range">>, ModelConfig, 48),          % часы
             OutputDataWindowRange = maps:get(<<"output_range">>, ModelConfig, 24),
+            ModelPath = maps:get(<<"model_path">>, ModelConfig, 24),
             % SeriesList0 = [ select(InputDataWindowRange, StepBetweenPoints * ?MSEC, A) || A <- ArchivesAsModelInput ],
             case select(InputDataWindowRange * ?HOUR_SEC * ?MSEC, StepBetweenPoints * ?MSEC, ArchivesAsModelInput) of
                 {ok,SeriesDataMap} when is_map(SeriesDataMap)-> SeriesDataMap,
-                    SeriesDataMapValuesList = transform_struct(maps:values(SeriesDataMap)),
+                    SeriesDataMapValuesList = transform_struct(ArchivesAsModelInput, SeriesDataMap),
                     ?LOGDEBUG("Series Data Map Values List: ~p",[SeriesDataMapValuesList]),
                     TransformedDataList = [ transform_series(Transform, Series) || Series <-SeriesDataMapValuesList],
                     ?LOGDEBUG("Transformed Data List: ~p",[TransformedDataList]),
@@ -292,7 +293,7 @@ request_body(ModelPath, OutputWindow, Step, Series) ->
             {<<"period">>,     OutputWindow},
             {<<"step">>,       Step},
             {<<"task_input">>, Series},
-            {<<"model_path">>, none}
+            {<<"model_path">>, ModelPath}
         ]}
     catch
         _:Error ->
@@ -416,13 +417,9 @@ run_transform(A, Series) when is_atom(A) ->
 run_transform(_, Series) ->
     {ok, Series}.  %% на всякий случай no-op
 
-transform_struct(ListOfSeries) when is_list(ListOfSeries) ->
-    [
-        [
-            % The inner list comprehension iterates over the tuples in one series
-            [Ts, V] || Series <- ListOfSeries, [Ts, V, Q] <- Series
-        ]
-    ];
-
-transform_struct(none) ->
-    [].    
+transform_struct(Keys, SeriesDataMap)->
+    %% Сохраняя тот же порядок, что и в Keys
+    [ 
+        [ [T, V] || [T, V, _QI] <- maps:get(K, SeriesDataMap) ]
+        || K <- Keys
+    ].
