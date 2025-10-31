@@ -271,7 +271,7 @@ ts_list(InputWindow, Step)->
         Now   = timestamp(),
         Base  = (Now div Step) * Step,
         From  = Base - InputWindow,
-        To    = Now,
+        To    = Now + InputWindow,
         lists:seq(From, To - Step, Step).
 
 transform_dataset(Series) when is_list(Series) ->
