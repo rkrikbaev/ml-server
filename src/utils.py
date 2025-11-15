@@ -207,8 +207,11 @@ def load_model_and_normalization(model_rel_dirpath: str = None, model_type: Lite
     if model_type == 'lr':
         file_name = 'model.joblib'
     else:
-        file_name = 'prophet_model.json'
-    
+        if model_type == 'xgb':
+            file_name = 'model.json'
+        else:
+            file_name = 'prophet_model.json'
+        
     model_path = os.path.join(model_dirpath, file_name)
     logger.debug(f'Model path: {model_path}')
     
