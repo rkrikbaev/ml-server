@@ -9,7 +9,7 @@ echo "Root: $root"
 # Get the version
 version="${model##*/}"
 
-image=ml:0.0.5
+image=ml:0.0.8
 
 # Combain name of container, replace all / on _
 name="${model%/*}"
