@@ -366,8 +366,11 @@ def init_model(model_path: str | None, step: int):
         return SbreModel(), {}
     else:
         # Load trained model and normalization from disk
+        model_type = 'xgb'
+        if step != 3600000 or model_path.startswith('prophet'):
+            model_type = 'prophet'
         model, normalization = load_model_and_normalization(
             model_rel_dirpath=model_path, 
-            model_type='xgb' if step == 3600000 else 'prophet'
+            model_type=model_type
         )
     return model, normalization
