@@ -115,6 +115,12 @@ async def _process_data(request: Request):
     # Prepare response
     # result = [[int(ts), f'{float(p):.1f}'] for ts, p in zip(pred_timestamps, preds)]
     result = [[int(ts), round(float(p), 1)] for ts, p in zip(pred_timestamps, preds)]
+
+    # Replace nans with None
+    for i in range(len(result)):
+        if np.isnan(result[i][1]):
+            result[i][1] = None
+
     logger.info(f'result: {result}')
 
     logger.info(f"len(result): {len(result)}")
