@@ -190,9 +190,9 @@ def predict(
         )
         logger.info(f'X.shape: {X.shape}')
 
-        # If any of the inputs is all NaNs, return -1
+        # If any of the inputs is all NaNs, return nan
         if any([np.all(np.isnan(y_)) for y_ in y]):
-            return np.full(output_range, -1), pred_timestamps
+            return np.full(output_range, np.nan), pred_timestamps
 
         X = X[None, :]
         y_pred = model.predict(X)[0]
@@ -274,21 +274,21 @@ def predict(
         # Return the first input as prediction
         y_pred = y[1]
 
-        # If it is all NaNs, return -1
+        # If it is all NaNs, return nan
         if np.all(np.isnan(y_pred)):
-            y_pred = np.full_like(y_pred, -1)
+            y_pred = np.full_like(y_pred, np.nan)
 
         pred_timestamps = timestamps[1]
     else:
         if online:
             # If too few data points are not NaN, either 
             # use the first non-NaN input as prediction
-            # or fill with -1
+            # or fill with nans
             y = y[0][:len(timestamps[0]) // 2]
             y_non_nan = ~np.isnan(y)
             n_non_nans = y_non_nan.sum()
             if n_non_nans == 0:
-                y = np.full_like(y, -1)
+                y = np.full_like(y, np.nan)
             elif n_non_nans == 1:
                 y = np.full_like(y, y[y_non_nan][0])
 
