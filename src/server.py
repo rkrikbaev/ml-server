@@ -15,7 +15,7 @@ import uvicorn
 import numpy as np
 from fastapi import FastAPI, Request
 
-from inference import init_model, predict, predict_default
+from inference import init_model, predict, predict_default, get_full_days_mask
 from utils import extract_data
 
 
@@ -28,6 +28,11 @@ except ValueError:
     MAX_CONCURRENT_REQUESTS = 8
     logger.warning(f"Invalid value for MAX_CONCURRENT_REQUESTS, using default: {MAX_CONCURRENT_REQUESTS}")
 semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
+
+def check_sbre(y, timestamps):
+    mask = get_full_days_mask(timestamps, offset_days=1)
+    return not np.all(np.isnan(y[1][mask]))
 
 
 async def _process_data(request: Request):
@@ -76,13 +81,23 @@ async def _process_data(request: Request):
             logger.error(e)
             return r
     
-    # Fall back to online from sbre
-    # if no sbre data is here and 
-    # the input for online is present
-    if model_path == 'sbre' and np.all(np.isnan(y[1])) and not np.all(np.isnan(y[0])):
-        model_path = 'none'
-        online = True
+    # Try to use sbre if possible
+    if step == 3600 and len(y) >= 2:
+        if check_sbre(y, timestamps):
+            logger.info("Using sbre model")
+            online = False
+            model_path = 'sbre'
 
+    # Try to init model by path
+    if model_path not in ['none', 'sbre']:
+        m, _ = init_model(model_path, step)
+        if m is None:
+            logger.warning(f"Cannot init model from path {model_path}, using online model instead")
+            online = True
+            model_path = 'none'
+
+    # Init actual model
+    logger.info(f"Init model from path: {model_path}, step: {step}, online: {online}")
     model, normalization = init_model(model_path, step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
