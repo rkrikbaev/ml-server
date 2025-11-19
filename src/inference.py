@@ -303,9 +303,10 @@ def predict(
             model.fit(df_train)
 
         # The data interval middle is actually the current time
-        pred_start_dt = pd.to_datetime(timestamps[0][len(timestamps[0]) // 2], unit='ms')
+        last_past_index = get_last_past_index(timestamps)
+        pred_start_dt = pd.to_datetime(timestamps[0][last_past_index+1], unit='ms')
         if step == 2592000000:
-            # Round to next month start
+            # Round to current month start
             pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
         else:
