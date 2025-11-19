@@ -128,8 +128,11 @@ async def _process_data(request: Request):
     logger.info(preds)
 
     # Prepare response
-    # result = [[int(ts), f'{float(p):.1f}'] for ts, p in zip(pred_timestamps, preds)]
     result = [[int(ts), round(float(p), 1)] for ts, p in zip(pred_timestamps, preds)]
+
+    # Add last point with nan
+    if len(result) > 0:
+        result.append([int(result[-1][0] + step * 1000), float('nan')])
 
     # Replace nans with None
     for i in range(len(result)):
