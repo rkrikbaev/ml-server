@@ -82,7 +82,7 @@ async def _process_data(request: Request):
             return r
     
     # Try to use sbre if possible
-    if step == 3600 and len(y) >= 2:
+    if step == 3600000 and len(y) >= 2:
         if check_sbre(y, timestamps):
             logger.info("Using sbre model")
             online = False
@@ -132,7 +132,7 @@ async def _process_data(request: Request):
 
     # Add last point with nan
     if len(result) > 0:
-        result.append([int(result[-1][0] + step * 1000), float('nan')])
+        result.append([int(result[-1][0] + step), float('nan')])
 
     # Replace nans with None
     for i in range(len(result)):
