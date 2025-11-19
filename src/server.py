@@ -50,8 +50,8 @@ async def _process_data(request: Request):
     r = dict()
 
     try:
-        step = d["step"]
-        period = d["period"]
+        step = d["step"]  # in seconds
+        period = (d["period"] * 3600) // d["step"]  # convert period from hours to number of timestamps
         task_id = d["task_id"]
         model_path = d.get("model_path", None)
         online = model_path == 'none'
