@@ -303,7 +303,7 @@ def predict(
             model.fit(df_train)
 
         # The data interval middle is actually the current time
-        last_past_index = get_last_past_index(timestamps)
+        last_past_index = get_last_past_index(timestamps[0])
         pred_start_dt = pd.to_datetime(timestamps[0][last_past_index+1], unit='ms')
         if step == 2592000000:
             # Round to current month start
