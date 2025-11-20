@@ -83,7 +83,7 @@ async def _process_data(request: Request):
     
     # Try to use sbre if possible
     if step == 3600000 and len(y) >= 2:
-        if check_sbre(y, timestamps):
+        if check_sbre(y, timestamps[0]):
             logger.info("Using sbre model")
             online = False
             model_path = 'sbre'
