@@ -304,17 +304,21 @@ def predict(
 
         # The data interval middle is actually the current time
         last_past_index = get_last_past_index(timestamps[0])
-        pred_start_dt = pd.to_datetime(timestamps[0][last_past_index+1], unit='ms')
-        if step in [2592000000, 86400000]:
-            # Round to the next month start
+        pred_start_dt = pd.to_datetime(timestamps[0][last_past_index], unit='ms')
+        if step == 2592000000:
+            # Round to the current month start, then add one month
             pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            if step == 2592000000:
-                pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
-            elif step == 86400000:
-                pred_dt = [pred_start_dt + pd.DateOffset(days=i) for i in range(output_range)]
+            pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
+            pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
+        elif step == 86400000:
+            # Round to the current month start, then add one month
+            pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
+            pred_dt = [pred_start_dt + pd.DateOffset(days=i) for i in range(output_range)]
         elif step == 3600000:
-            # Round to current hour start
+            # Round to the current hour start, then add one hour
             pred_start_dt = pred_start_dt.replace(minute=0, second=0, microsecond=0)
+            pred_start_dt = pred_start_dt + pd.DateOffset(hours=1)
             pred_dt = [pred_start_dt + pd.DateOffset(hours=i) for i in range(output_range)]
         else:
             # Do not round for other steps
