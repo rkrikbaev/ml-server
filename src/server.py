@@ -54,6 +54,7 @@ async def _process_data(request: Request):
         period = (d["period"] * 3600000) // d["step"]  # convert period from hours to number of timestamps
         task_id = d["task_id"]
         model_path = d.get("model_path", None)
+        clip_negatives_to_0 = d.get("clip_negatives_to_0", True)
         online = model_path == 'none'
         task_message = f'Запущена задача с идентификатором [{task_id}]'
     except KeyError as e:
@@ -126,6 +127,10 @@ async def _process_data(request: Request):
             logger.error(e)
             return r
     logger.info(preds)
+
+    # Clip negatives to 0 if needed
+    if clip_negatives_to_0:
+        preds = np.maximum(preds, 0)
 
     # Prepare response
     result = [[int(ts), round(float(p), 1)] for ts, p in zip(pred_timestamps, preds)]
