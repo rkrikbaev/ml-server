@@ -167,8 +167,8 @@ def timestamps_to_timezoned_timestamps(
     # Apply timezone offset
     df['dt'] = df['dt'] + pd.to_timedelta(timezone_offset_hours, unit='h')
 
-    # Convert back to timestamps
-    return df['dt'].astype(np.int64).values
+    # Convert back to timestamps in ms
+    return (df['dt'].astype(np.int64) // 10**6).values
 
 
 GMT_TO_ASTANA_HOURS = 5
