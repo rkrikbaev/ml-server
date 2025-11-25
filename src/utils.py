@@ -162,7 +162,7 @@ def timestamps_to_timezoned_timestamps(
 ) -> np.ndarray:
     # Convert to pandas datetime
     df = pd.DataFrame({'dt': timestamps})
-    df['dt'] = pd.to_datetime(df['dt'], unit='ns')
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms')
 
     # Apply timezone offset
     df['dt'] = df['dt'] + pd.to_timedelta(timezone_offset_hours, unit='h')
