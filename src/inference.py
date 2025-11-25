@@ -16,7 +16,7 @@ from typing import List, Dict
 from prophet import Prophet
 from xgboost import XGBRegressor
 
-from utils import timestamps_to_calendar_features, load_model_and_normalization, SbreModel
+from utils import timestamps_to_calendar_features, load_model_and_normalization, SbreModel, GMT_TO_ASTANA_HOURS
 
 
 def get_last_past_index(timestamps: np.ndarray) -> int:
@@ -321,7 +321,11 @@ def predict(
             pred_dt = [pred_start_dt + pd.DateOffset(hours=i) for i in range(output_range)]
         else:
             # Do not round for other steps
-            pass            
+            pass   
+
+        # Add back offset as we removed it with replace by rounding
+        if step in [2592000000, 86400000]:
+            pred_dt = [dt + pd.DateOffset(hours=GMT_TO_ASTANA_HOURS) for dt in pred_dt]
 
         df_future = pd.DataFrame({'ds': pred_dt})
         df_forecast = model.predict(df_future)
