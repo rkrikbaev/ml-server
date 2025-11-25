@@ -134,7 +134,7 @@ def get_valid_filename(name, faceplate=False):
 def timestamps_to_calendar_features(timestamps: List[int] | np.ndarray, n_predict_steps: int) -> Dict[str, np.ndarray]:
     # Convert to pandas datetime
     df = pd.DataFrame({'dt': timestamps})
-    df['dt'] = pd.to_datetime(df['dt'], unit='ns')
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms')
 
     # Weekday
     df['weekday'] = df['dt'].dt.weekday
