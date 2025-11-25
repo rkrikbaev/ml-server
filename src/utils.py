@@ -171,7 +171,7 @@ def timestamps_to_timezoned_timestamps(
     return (df['dt'].astype(np.int64) // 10**6).values
 
 
-GMT_TO_ASTANA_HOURS = 5
+GMT_TO_ASTANA_HOURS = -5
 def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray, np.ndarray]:
     if len(values) > 0:
         logger.debug(f'dataset values: {values}')
