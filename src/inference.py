@@ -23,11 +23,10 @@ def get_last_past_index(timestamps: np.ndarray) -> int:
     return len(timestamps) // 2
 
 
-GMT_TO_ASTANA_HOURS = 5
 def get_full_days_mask(timestamps: np.ndarray, offset_days: int):
     last_past_index = get_last_past_index(timestamps)
     df = pd.DataFrame({'dt': timestamps})
-    df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms')
     date = df['dt'].dt.floor('D')
     current_date = date.iloc[last_past_index]
     target_date = current_date + pd.Timedelta(days=offset_days)
@@ -37,14 +36,14 @@ def get_full_days_mask(timestamps: np.ndarray, offset_days: int):
 
 def get_month(timestamps: np.ndarray):
     df = pd.DataFrame({'dt': timestamps})
-    df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms')
     return df['dt'].dt.month.mode().iloc[0]
 
 
 def get_weekday(timestamps: np.ndarray) -> bool:
     last_past_index = get_last_past_index(timestamps)
     df = pd.DataFrame({'dt': timestamps})
-    df['dt'] = pd.to_datetime(df['dt'], unit='ms') + pd.Timedelta(hours=GMT_TO_ASTANA_HOURS)
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms')
     return df['dt'].dt.weekday.iloc[last_past_index]
 
 
