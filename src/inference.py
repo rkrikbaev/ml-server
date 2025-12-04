@@ -13,10 +13,10 @@ import numpy as np
 import pandas as pd
 from copy import copy
 from typing import List, Dict
-from prophet import Prophet
-from xgboost import XGBRegressor
 
-from utils import timestamps_to_calendar_features, load_model_and_normalization, SbreModel, GMT_TO_ASTANA_HOURS
+from fpforecast.models.ar import ModelWithMetaInfoAr
+from fpforecast.models.prophet import ModelWithMetaInfoProphet
+from utils import timestamps_to_calendar_features, SbreModel, GMT_TO_ASTANA_HOURS
 
 
 def get_last_past_index(timestamps: np.ndarray) -> int:
@@ -164,111 +164,77 @@ def predict_default(
     return y_pred, pred_timestamps
 
 
+def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int):
+    last_past_index = get_last_past_index(ts)
+    pred_start_dt = pd.to_datetime(ts[last_past_index], unit='ms')
+    if step == 2592000000:
+        # Round to the current month start, then add one month
+        pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
+        pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
+    elif step == 86400000:
+        # Round to the current month start, then add one month
+        pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
+        pred_dt = [pred_start_dt + pd.DateOffset(days=i) for i in range(output_range)]
+    elif step == 3600000:
+        # Round to the current hour start, then add one hour
+        pred_start_dt = pred_start_dt.replace(minute=0, second=0, microsecond=0)
+        pred_start_dt = pred_start_dt + pd.DateOffset(hours=1)
+        pred_dt = [pred_start_dt + pd.DateOffset(hours=i) for i in range(output_range)]
+    else:
+        # Do not round for other steps
+        pass   
+
+    # Add back offset as we removed it with replace by rounding
+    if step in [2592000000, 86400000]:
+        pred_dt = [dt + pd.DateOffset(hours=GMT_TO_ASTANA_HOURS) for dt in pred_dt]
+
+    pred_timestamps = [
+        int(dt.timestamp() * 1000) for dt in pred_dt
+    ]
+    pred_timestamps = np.array(pred_timestamps, dtype=int)
+
+    return last_past_index, pred_timestamps
+    
+
 def predict(
     model,
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
-    normalization: Dict[str, Dict[str, float]] | None,
     step: int,
     output_range: int,
     online: bool,
 ):
-    # Predict
-    if isinstance(model, XGBRegressor):
-        assert not online, "XGBRegressor model should not be used in online mode"
+    if isinstance(model, ModelWithMetaInfoAr):
+        last_past_index, pred_timestamps = get_pred_timestamps(timestamps[0], step, output_range)
 
-        # Get weekday
-        weekday = get_weekday(timestamps[0])
+        # Select single window
+        W_past = model.W_past
+        W_future = model.W_future
+        assert output_range == W_future
 
-        # Get features
-        X, pred_timestamps, train_to_test_correction_ratio = extract_features(
-            timestamps,
-            y,
-            normalization,
-            offset_days=-1,
+        # TODO: add more features
+        df = pd.DataFrame(
+            {
+                'value': y[0][last_past_index-W_past:last_past_index+W_future],
+            },
+            index=pd.to_datetime(timestamps[0][last_past_index-W_past:last_past_index+output_range], unit='ms')
         )
-        logger.info(f'X.shape: {X.shape}')
+        _, y_pred = model.predict(df)
 
-        # If any of the inputs is all NaNs, return nan
-        if any([np.all(np.isnan(y_)) for y_ in y]):
-            return np.full(output_range, np.nan), pred_timestamps
-
-        X = X[None, :]
-        y_pred = model.predict(X)[0]
-
-        # If friday, additionally predict for sunday and monday
-        if weekday == 4:
-            ### Saturday: predicted as usual
-            y_preds, pred_timestampss = [y_pred], [pred_timestamps]
-
-            ### Sunday
-            ### - predict for friday first, as we are in the middle of the day
-            ###   and not all the GT values are present for it
-            ### - then use the prediction in place of missing GT values
-
-            # Get features
-            X, _, _ = extract_features(
-                timestamps,
-                y,
-                normalization,
-                offset_days=-2,
-            )
-
-            # Predict
-            X = X[None, :]
-            y_pred = model.predict(X)[0]
-            # Note: we do not add it to y_preds
-
-            # Get features
-            X, pred_timestamps, _ = extract_features(
-                timestamps,
-                y,
-                normalization,
-                offset_days=0,
-            )
-
-            # Partially use friday predictions as GT
-            last_past_index = get_last_past_index(timestamps[0])
-            future_mask = np.arange(len(timestamps[0])) > last_past_index
-            friday_mask = get_full_days_mask(timestamps[0], 0)
-            friday_future_mask = future_mask & friday_mask
-            friday_future_mask = friday_future_mask[friday_mask]
-            X[:y_pred.shape[0]] = np.where(friday_future_mask, y_pred, X[:y_pred.shape[0]])
-
-            # Predict
-            X = X[None, :]
-            y_pred = model.predict(X)[0]
-            
-            y_preds.append(y_pred)
-            pred_timestampss.append(pred_timestamps)
-
-            ### Monday
-            ### - use the saturday prediction in place of missing GT values
-
-            # Get features
-            X, pred_timestamps, _ = extract_features(
-                timestamps,
-                y,
-                normalization,
-                offset_days=1,
-            )
-
-            # Use saturday predictions as GT
-            X[:y_preds[0].shape[0]] = y_preds[0]
-
-            # Predict
-            X = X[None, :]
-            y_pred = model.predict(X)[0]
-            
-            y_preds.append(y_pred)
-            pred_timestampss.append(pred_timestamps)
-
-            y_pred, pred_timestamps = np.concatenate(y_preds, axis=0), np.concatenate(pred_timestampss, axis=0)
-
-        # Unnormalize
-        sub, div = normalization['sub'], normalization['div']
-        y_pred = y_pred / train_to_test_correction_ratio
-        y_pred = y_pred * div['y'] + sub['y']
+        assert y_pred.shape[0] == 1
+        y_pred = y_pred.reshape(-1)[:output_range]
+    elif isinstance(model, ModelWithMetaInfoProphet):
+        last_past_index, pred_timestamps = get_pred_timestamps(timestamps[0], step, output_range)
+        df = pd.DataFrame(
+            {
+                'ds': pd.to_datetime(timestamps[0][last_past_index:last_past_index+output_range], unit='ms'),
+            }
+        )
+        df_pred = model.predict(df)
+        y_pred = df_pred['yhat'].values
+        logger.debug(f'{len(y_pred)=}, {y_pred=}')
     elif isinstance(model, SbreModel):
         # Return the first input as prediction
         y_pred = y[1]
@@ -301,91 +267,9 @@ def predict(
             )
             model.fit(df_train)
 
-        # The data interval middle is actually the current time
-        last_past_index = get_last_past_index(timestamps[0])
-        pred_start_dt = pd.to_datetime(timestamps[0][last_past_index], unit='ms')
-        if step == 2592000000:
-            # Round to the current month start, then add one month
-            pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
-            pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
-        elif step == 86400000:
-            # Round to the current month start, then add one month
-            pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
-            pred_dt = [pred_start_dt + pd.DateOffset(days=i) for i in range(output_range)]
-        elif step == 3600000:
-            # Round to the current hour start, then add one hour
-            pred_start_dt = pred_start_dt.replace(minute=0, second=0, microsecond=0)
-            pred_start_dt = pred_start_dt + pd.DateOffset(hours=1)
-            pred_dt = [pred_start_dt + pd.DateOffset(hours=i) for i in range(output_range)]
-        else:
-            # Do not round for other steps
-            pass   
-
-        # Add back offset as we removed it with replace by rounding
-        if step in [2592000000, 86400000]:
-            pred_dt = [dt + pd.DateOffset(hours=GMT_TO_ASTANA_HOURS) for dt in pred_dt]
-
-        df_future = pd.DataFrame({'ds': pred_dt})
+        _, pred_timestamps = get_pred_timestamps(timestamps[0], step, output_range)
+        df_future = pd.DataFrame({'ds': pd.to_datetime(pred_timestamps, unit='ms')})
         df_forecast = model.predict(df_future)
         y_pred = df_forecast['yhat'].values
-        pred_timestamps = [
-            int(dt.timestamp() * 1000) for dt in pred_dt
-        ]
-        pred_timestamps = np.array(pred_timestamps, dtype=int)
 
     return y_pred, pred_timestamps
-
-
-def init_model(model_path: str | None, step: int):
-    if model_path == 'none':
-        # Create new Prophet model to train on the provided inputs
-        # and no normalization
-        if step == 2592000000:
-            # Monthly (30 days) step
-            # expected to have 12+ months of data
-            seasonality_kwargs = {
-                'daily_seasonality': False,
-                'weekly_seasonality': False,
-                'yearly_seasonality': True,
-            }
-        elif step == 86400000:
-            # Daily step
-            # expected to have 30+ days of data
-            seasonality_kwargs = {
-                'daily_seasonality': True,
-                'weekly_seasonality': True,
-                'yearly_seasonality': False,
-            }
-        elif step == 3600000:
-            # Hourly step
-            # expected to have 30+ days of data
-            seasonality_kwargs = {
-                'daily_seasonality': True,
-                'weekly_seasonality': False,
-                'yearly_seasonality': False,
-            }
-        model = Prophet(
-            changepoint_prior_scale=0.1,
-            changepoint_range=0.9,
-            growth='flat',
-            # mcmc_samples=100,
-            n_changepoints=5,
-            seasonality_mode='multiplicative',
-            seasonality_prior_scale=30.0,
-            **seasonality_kwargs,
-        )
-        normalization = dict()
-    elif model_path == 'sbre':
-        return SbreModel(), {}
-    else:
-        # Load trained model and normalization from disk
-        model_type = 'xgb'
-        if step != 3600000 or model_path.startswith('prophet'):
-            model_type = 'prophet'
-        model, normalization = load_model_and_normalization(
-            model_rel_dirpath=model_path, 
-            model_type=model_type
-        )
-    return model, normalization

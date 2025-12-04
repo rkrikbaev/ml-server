@@ -34,5 +34,6 @@ docker run \
     -p $port:8000 \
     -v "/$root/local/$model:/workspace/models" \
     -v "/$root/src:/workspace/server" \
+    -v "/$root/lib:/workspace/lib" \
     $image \
     python3 -m uvicorn server:app --host 0.0.0.0 --port 8000

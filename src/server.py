@@ -1,3 +1,9 @@
+# Add lib/oik-new to path
+# TODO: remove after fpforecast package is ready
+import sys
+import os
+sys.path.insert(0, str(os.path.join(os.path.dirname(__file__), '..', 'lib', 'oik-new')))
+
 # Config logging
 import logging
 import os
@@ -15,8 +21,8 @@ import uvicorn
 import numpy as np
 from fastapi import FastAPI, Request
 
-from inference import init_model, predict, predict_default, get_full_days_mask
-from utils import extract_data
+from inference import predict, predict_default, get_full_days_mask
+from utils import extract_data, init_model
 
 
 app = FastAPI()
@@ -82,24 +88,13 @@ async def _process_data(request: Request):
             logger.error(e)
             return r
     
-    # Try to use sbre if possible
-    if step == 3600000 and len(y) >= 2:
-        if check_sbre(y, timestamps[0]):
-            logger.info("Using sbre model")
-            online = False
-            model_path = 'sbre'
-
-    # Try to init model by path
-    if model_path not in ['none', 'sbre']:
-        m, _ = init_model(model_path, step)
-        if m is None:
-            logger.warning(f"Cannot init model from path {model_path}, using online model instead")
-            online = True
-            model_path = 'none'
-
-    # Init actual model
+    # Init model
     logger.info(f"Init model from path: {model_path}, step: {step}, online: {online}")
-    model, normalization = init_model(model_path, step)
+    model = init_model(model_path, step)
+    if model is None:
+        logger.warning(f"Cannot init model from path {model_path}, using online model instead")
+        online = True
+        model = init_model('none', step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
 
@@ -116,7 +111,6 @@ async def _process_data(request: Request):
                 y=y,
                 timestamps=timestamps,
                 model=model,
-                normalization=normalization,
                 step=step,
                 output_range=period,
                 online=online,

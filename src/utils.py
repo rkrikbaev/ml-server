@@ -9,14 +9,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__file__)
 
-import joblib
-import json
 import numpy as np
 import pandas as pd
 import re
-from prophet.serialize import model_from_json
-from xgboost import XGBRegressor
-from typing import List, Dict, Tuple, Literal
+from prophet import Prophet
+from pathlib import Path
+from typing import List, Dict, Tuple
+from fpforecast.models.ar import ModelWithMetaInfoAr
+from fpforecast.models.prophet import ModelWithMetaInfoProphet
 
 
 class SbreModel:
@@ -198,60 +198,77 @@ def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray,
     return y, timestamps
 
 
-def load_model_and_normalization(model_rel_dirpath: str = None, model_type: Literal['lr', 'xgb', 'prophet'] = 'lr'):
-    assert model_type in ['lr', 'xgb', 'prophet']
-
-    normalizations = dict()
-    model = None
-
-    file_name = 'normalization.json'
-    model_dirpath = '/workspace/models'
-    if model_rel_dirpath is not None:
-        model_dirpath = os.path.join(model_dirpath, model_rel_dirpath)
-    model_path = os.path.join(model_dirpath, file_name)
-    logger.debug(f'Model normalization path: {model_path}')
-
-    if os.path.exists(model_path):
-        try:
-            with open(model_path, 'r') as f:
-                normalizations = json.load(f)  # Use json.load() to load JSON from a file
-        except json.JSONDecodeError as e:
-            logger.error(f"Error decoding JSON from {model_path}: {e}")
+def init_model(model_rel_dirpath: str | None, step: int):
+    if model_rel_dirpath is None:
+        logger.debug('No model_rel_dirpath provided')
+        model = None
+    elif model_rel_dirpath == 'none':
+        logger.debug('model_rel_dirpath is "none"')
+        # Create new Prophet model to train on the provided inputs
+        # and no normalization
+        if step == 2592000000:
+            # Monthly (30 days) step
+            # expected to have 12+ months of data
+            seasonality_kwargs = {
+                'daily_seasonality': False,
+                'weekly_seasonality': False,
+                'yearly_seasonality': True,
+            }
+        elif step == 86400000:
+            # Daily step
+            # expected to have 30+ days of data
+            seasonality_kwargs = {
+                'daily_seasonality': True,
+                'weekly_seasonality': True,
+                'yearly_seasonality': False,
+            }
+        elif step == 3600000:
+            # Hourly step
+            # expected to have 30+ days of data
+            seasonality_kwargs = {
+                'daily_seasonality': True,
+                'weekly_seasonality': False,
+                'yearly_seasonality': False,
+            }
+        model = Prophet(
+            changepoint_prior_scale=0.1,
+            changepoint_range=0.9,
+            growth='flat',
+            # mcmc_samples=100,
+            n_changepoints=5,
+            seasonality_mode='multiplicative',
+            seasonality_prior_scale=30.0,
+            **seasonality_kwargs,
+        )
+    elif model_rel_dirpath == 'sbre':
+        logger.debug('model_rel_dirpath is "sbre"')
+        model = SbreModel()
     else:
-        logger.warning('Normalization not exist')
+        model_type = model_rel_dirpath.split('/')[0]
+        assert model_type in ['xgb', 'prophet']
 
-    if model_type == 'lr':
-        file_name = 'model.joblib'
-    else:
+        base_dirpath = Path('/workspace/models')
+        model_rel_dirpath = Path(model_rel_dirpath)
+
+        model_dirpath = base_dirpath / model_rel_dirpath
         if model_type == 'xgb':
-            file_name = 'model.json'
-        else:
-            file_name = 'prophet_model.json'
+            logger.debug(f'Trying to loading xgb model from {model_dirpath}')
+            model_filepath = model_dirpath / 'xgb_model.json'
+            model_class = ModelWithMetaInfoAr
+        elif model_type == 'prophet':
+            logger.debug(f'Trying to loading prophet model from {model_dirpath}')
+            model_filepath = model_dirpath / 'prophet_model.json'
+            model_class = ModelWithMetaInfoProphet
         
-    model_path = os.path.join(model_dirpath, file_name)
-    logger.debug(f'Model path: {model_path}')
-    
-    if os.path.exists(model_path):
-        try:
-            if model_type == 'lr':
-                model = joblib.load(model_path)
-            elif model_type == 'xgb':
-                model = XGBRegressor()
-                model.load_model(model_path)
-            else:
-                assert model_type == 'prophet'
-                with open(model_path, 'r') as f:
-                    j = f.read()
-                    model = model_from_json(j)
-        except Exception as e:
-            logger.error(f"Error loading model from {model_path}: {e}")
-    else:
-        logger.warning('Model not exist')
-    
-    logger.debug(f'model object: {model}')
-    logger.debug(f'normalization object: {normalizations}')
+        if not model_filepath.is_file():
+            logger.warning(f'Model file not found: {model_filepath}')
+            model = None
+        else:
+            logger.debug(f'Loading model from {model_filepath}')
+            model = model_class.load_model(model_filepath)
 
-    return model, normalizations
+    logger.debug(f'Initialized model: {model}')
+    return model
 
 
 # https://stackoverflow.com/a/6520696
