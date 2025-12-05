@@ -187,8 +187,7 @@ def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int):
         pass   
 
     # Add back offset as we removed it with replace by rounding
-    if step in [2592000000, 86400000]:
-        pred_dt = [dt + pd.DateOffset(hours=GMT_TO_ASTANA_HOURS) for dt in pred_dt]
+    pred_dt = [dt + pd.DateOffset(hours=GMT_TO_ASTANA_HOURS) for dt in pred_dt]
 
     pred_timestamps = [
         int(dt.timestamp() * 1000) for dt in pred_dt
