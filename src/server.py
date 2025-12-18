@@ -10,7 +10,7 @@ import os
 
 logging.basicConfig(
     format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-    datefmt='%H:%M:%S',
+    datefmt='%Y-%m-%d %H:%M:%S',
     level=os.environ.get('LOGLEVEL', 'INFO'),
 )
 logger = logging.getLogger(__file__)

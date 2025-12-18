@@ -1,14 +1,4 @@
-# Config logging
 import logging
-import os
-
-logging.basicConfig(
-    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-    datefmt='%H:%M:%S',
-    level=os.environ.get('LOGLEVEL', 'INFO'),
-)
-logger = logging.getLogger(__file__)
-
 import numpy as np
 import pandas as pd
 from copy import copy
@@ -17,6 +7,9 @@ from typing import List, Dict
 from fpforecast.models.ar import ModelWithMetaInfoAr
 from fpforecast.models.prophet import ModelWithMetaInfoProphet
 from utils import timestamps_to_calendar_features, SbreModel, GMT_TO_ASTANA_HOURS
+
+
+logger = logging.getLogger(__file__)
 
 
 def get_last_past_index(timestamps: np.ndarray) -> int:

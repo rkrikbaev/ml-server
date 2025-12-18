@@ -1,14 +1,4 @@
-# Config logging
 import logging
-import os
-
-logging.basicConfig(
-    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-    datefmt='%H:%M:%S',
-    level=os.environ.get('LOGLEVEL', 'INFO'),
-)
-logger = logging.getLogger(__file__)
-
 import numpy as np
 import pandas as pd
 import re
@@ -18,6 +8,8 @@ from typing import List, Dict, Tuple
 from fpforecast.models.ar import ModelWithMetaInfoAr
 from fpforecast.models.prophet import ModelWithMetaInfoProphet
 
+
+logger = logging.getLogger(__file__)
 
 class SbreModel:
     pass
