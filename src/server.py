@@ -129,10 +129,6 @@ async def _process_data(request: Request):
     # Prepare response
     result = [[int(ts), round(float(p), 1)] for ts, p in zip(pred_timestamps, preds)]
 
-    # Add last point with nan
-    if len(result) > 0:
-        result.append([int(result[-1][0] + step), float('nan')])
-
     # Replace nans with None
     for i in range(len(result)):
         if np.isnan(result[i][1]):
