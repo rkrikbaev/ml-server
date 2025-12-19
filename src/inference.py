@@ -204,7 +204,8 @@ def predict(
         # Select single window
         W_past = model.W_past
         W_future = model.W_future
-        assert output_range == W_future
+        assert output_range == W_future, \
+            f'Output range {output_range} != W_future {W_future} of the AR model'
 
         # TODO: add more features
         df = pd.DataFrame(
@@ -213,6 +214,10 @@ def predict(
             },
             index=pd.to_datetime(timestamps[0][last_past_index-W_past:last_past_index+output_range], unit='ms')
         )
+        for feature_info in model.features_info:
+            if feature_info.name in df.columns:
+                continue
+            df[feature_info.name] = np.nan
         _, y_pred = model.predict(df)
 
         assert y_pred.shape[0] == 1
