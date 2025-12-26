@@ -35,6 +35,7 @@
 -define(USER_NAME,"scada_system").
 -define(PASSWORD,"QWE@#kegsCaDa90").
 -define(CLIENT_SECRET,"tJpO0k832VdeePNm7qhq1fvHuYKhVMsp").
+-define(BEMS_UTC_OFFSET_HOURS,1).
 
 on_create(_Object)->
   ok.
@@ -68,10 +69,16 @@ run(IsTomorrow)->
                 %% Выполняем запрос с токеном
                 % ?LOGDEBUG("Request Token ~p",[Token]),
                 case request_data(Token, Hours, Objects, IsTomorrow) of
-                    {ok, [Response]} ->
-                        ?LOGDEBUG("Response: ~p~n", [Response]),
+                    {ok, Responses} ->
+                        ?LOGDEBUG("Responses: ~p~n", [Responses]),
                         try
-                            process_data(OIDs,Objects,Response)
+                            lists:foreach(fun(Response) ->
+                                case process_data(OIDs, Objects, Response) of 
+                                    ok -> ok;
+                                    {error, Reason} ->
+                                        ?LOGWARNING("Error when process data: ~p", [Reason])
+                                end
+                            end, Responses)
                         catch
                             E:R->?LOGWARNING("Error when process data: ~p, ~p", [E,R])
                         end;
@@ -134,14 +141,93 @@ request_token() ->
 request_data(Token, Hours, Objects, IsTomorrow) ->
     %% URL запроса
     ?LOGDEBUG("Request data..."),
-    Url = <<"https://bems.kegoc.kz/integration/api/v1/integration/plans">>,
-    {{CurrentYear, CurrentMonth, CurrentDay}, Time}  = calendar:universal_time(),
-    Date = 
+
+    % Get local current datetime
+    DateTimeLocal = calendar:universal_time_to_local_time(calendar:universal_time()),
+
+    % Offset the date if IsTomorrow is true and extract date part
+    {{CurrentYear, CurrentMonth, CurrentDay}, _} = 
         if IsTomorrow =:= true
-            -> format_utc_date({{CurrentYear, CurrentMonth, CurrentDay + 1}, Time});
+            -> add_offset_datetime(DateTimeLocal, 24);
         true
-            -> format_utc_date({{CurrentYear, CurrentMonth, CurrentDay}, Time})
+            -> DateTimeLocal
         end,
+
+    % For each hour in hours, we build local datetime
+    % convert it back to UTC and offset by ?BEMS_UTC_OFFSET_HOURS
+    HoursDateTimesBEMS = 
+        [ 
+            convert_utc_to_offset(
+                calendar:local_time_to_universal_time(
+                    {{CurrentYear, CurrentMonth, CurrentDay}, {Hour, 0, 0}}
+                ), 
+                ?BEMS_UTC_OFFSET_HOURS
+            ) || Hour <- Hours ],
+    ?LOGDEBUG("HoursDateTimesBEMS: ~p", [HoursDateTimesBEMS]),
+
+    % Form a list of maps with date string and corresponding hours
+    % At most 2 different dates will be present because we 
+    % at most request full 24 hours locally, and it could span 2 dates in BEMS timezone
+    DatesHoursList = 
+        lists:foldl(
+            fun(DateTime, Acc) ->
+                {Date, {Hour, _, _}} = DateTime,
+                DateStr = format_utc_date(DateTime),
+                case lists:keyfind(DateStr, 1, Acc) of
+                    {DateStr, HoursList} ->
+                        % Date already present, append hour
+                        NewHoursList = lists:append(HoursList, [Hour]),
+                        lists:keyreplace(DateStr, 1, Acc, {DateStr, NewHoursList});
+                    false ->
+                        % New date, add new entry
+                        [{DateStr, [Hour]} | Acc]
+                end
+            end, [], HoursDateTimesBEMS),
+    ?LOGDEBUG("DatesHoursList: ~p", [DatesHoursList]),
+
+    % For each date, make a separate request
+    % request_data returns {ok, [Response]} or {error, Reason}, so we collect it 
+    % as [ok, [Response]] or [ok, [Response1, Response2]], or as [error, [Reason]]
+    ResultsRaw =
+        lists:map(
+            fun({Date, HoursList}) ->
+                request_data_single(Token, Date, HoursList, Objects)
+            end,
+            DatesHoursList),
+
+    % All ok => ok, any other => error
+    Status = lists:foldl(
+        fun
+            ({ok, _}, ok) -> ok;
+            (_, acc) -> error
+        end, ok, ResultsRaw),
+    ?LOGDEBUG("Status: ~p", [Status]),
+
+    % Collect list of reasons in case of error
+    Reasons = lists:foldl(
+        fun
+            ({error, Reason}, Acc) -> [Reason | Acc];
+            (_, Acc) -> Acc
+        end, [], ResultsRaw),
+    
+    % The each second term is a list of a single element, we turn it into a flat list
+    Results =
+        case Status of
+            ok ->
+                lists:foldl(
+                    fun({ok, [Response]}, Acc) -> [Response | Acc];
+                        (_, Acc) -> Acc
+                    end, [], ResultsRaw);
+            error ->
+                Reasons
+        end,
+    ?LOGDEBUG("Results: ~p", [Results]),
+
+    {Status, Results}.
+
+request_data_single(Token, Date, Hours, Objects) ->
+    Url = <<"https://bems.kegoc.kz/integration/api/v1/integration/plans">>,
+
     %% Формируем тело запроса
     Body = #{<<"date">> => Date, <<"hours">> => Hours, <<"objects">> => Objects},
     ?LOGDEBUG("Body ~p",[Body]),
@@ -290,7 +376,7 @@ calculate_timestamp(Date, Hour) ->
     try
         {Year, Month, Day} = date_binary_to_date(Date),
         % Construct DateTime
-        DateTime = convert_offset_to_utc({{Year, Month, Day}, {Hour, 0, 0}},2),
+        DateTime = convert_offset_to_utc({{Year, Month, Day}, {Hour, 0, 0}}, ?BEMS_UTC_OFFSET_HOURS),
         datetime_to_unix(DateTime) * 1000
     catch
         _:Error ->
@@ -338,7 +424,14 @@ update_value(Point)->
 %% Функция для преобразования даты/времени из часового пояса со смещением
 %% OffsetHours — это целое число (например, 5 для UTC+5, или -3 для UTC-3)
 convert_offset_to_utc(DateTime, OffsetHours) ->
+    add_offset_datetime(DateTime, -OffsetHours).
+
+%% Функция для преобразования даты/времени в часовой пояс со смещением
+%% OffsetHours — это целое число (например, 5 для UTC+5, или -3 для UTC-3)
+convert_utc_to_offset(DateTime, OffsetHours) ->
+    add_offset_datetime(DateTime, OffsetHours).
     
+add_offset_datetime(DateTime, OffsetHours) ->
     % 1. Преобразуем смещение (часы) в секунды
     OffsetSecs = OffsetHours * 3600,
     
@@ -347,7 +440,7 @@ convert_offset_to_utc(DateTime, OffsetHours) ->
     
     % 3. Вычитаем смещение, чтобы получить время в UTC
     % Примечание: Для перевода ИЗ локального времени В UTC, смещение ВСЕГДА ВЫЧИТАЕТСЯ.
-    UtcSecs = LocalSecs - OffsetSecs,
+    UtcSecs = LocalSecs + OffsetSecs,
     
     % 4. Преобразуем секунды UTC обратно в формат {Date, Time}
     UtcDateTime = calendar:gregorian_seconds_to_datetime(UtcSecs),
@@ -356,7 +449,7 @@ convert_offset_to_utc(DateTime, OffsetHours) ->
     
 find_items()->
     % get .oid, .name, id from * where and( .pattern=$oid('/root/FP/prototypes/subject/fields'), disabled=false)
-    % ?LOGINFO("find_objects/3: Root: ~p, Name: ~p, Pattern: ~p", [Root,Name,Pattern]),
+    % ?LOGDEBUG("find_objects/3: Root: ~p, Name: ~p, Pattern: ~p", [Root,Name,Pattern]),
     Query = {'AND', [ {<<"id">>, ':<>', none},
                 {<<".pattern">>, '=', fp_db:to_oid(<<"/root/FP/prototypes/subject/fields">>)},
                 {<<"disabled">>, ':=', false} ]},
