@@ -49,11 +49,8 @@ sync_archives(FolderPath, Replica, Seconds)->
         {<<"disabled">>,'=',true}
     },
     
-    Items = fp_db:get('*',[<<".oid">>], Query),
-
-    Archives = 
-        lists:foldl(fun find_archives/2, #{}, Items),
-
+    {_, SubjectFpPaths} = fp_db:get(?PROJECT_DBs, [<<".fp_path">>], Query),
+    Archives = lists:foldl(fun find_archives/2, #{}, SubjectFpPaths),
     TS0 = ?TS,
     TS1 = TS0 + (Seconds * 1000),
 
@@ -95,25 +92,23 @@ sync_archives(FolderPath, Replica, Seconds)->
             throw( Reason )
     end.
 
-find_archives(OID, Acc)->
-    case fp_db:find_in_folder(OID, <<"archives">>) of
-        {ok, ArchivesFolderOID} ->
-            Query = {'AND',[
-                {<<".pattern">>,'=',?OID(<<"/root/.patterns/ARCHIVE">>)},
-                {<<".folder">>,'=', ArchivesFolderOID}
-            ]},
-    
-            {_, Items} = fp_db:get('*',[<<".fp_path">>], Query),
-            lists:foldl(
-                fun([A], InAcc)-> 
-                    InAcc#{ A => true }
-                end, 
-                Acc, 
-                Items
-            );
-        _->
-            Acc
-    end.
+find_archives([[SubjectFpPath]], Acc)->
+    Query = {'ANDNOT',
+        {'AND',[
+            {<<".pattern">>,'=',?OID(<<"/root/.patterns/ARCHIVE">>)},
+            {<<".fp_path">>,'LIKE', <<"^", SubjectFpPath/binary>>},
+            {<<"is_prototype">>, '=', false}
+        ]},
+        {<<"disabled">>,'=',true}
+    },
+    {_, Items} = fp_db:get(?PROJECT_DBs, [<<".fp_path">>], Query),
+    lists:foldl(
+        fun([A], InAcc)-> 
+            InAcc#{ A => true }
+        end, 
+        Acc, 
+        Items
+    ).
 
 read_archives(Archives, TS0, TS1)->
     Values = fp_archive:read(Archives, TS0, TS1),
