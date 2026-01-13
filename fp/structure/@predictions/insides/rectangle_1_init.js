@@ -93,16 +93,16 @@ function(VARS,element,context){
                     id:"Потребление",
                     value:{
                         archives:[
-                            "/KAZ/VOSTOK/@regions/East Kazakhstan/load/out_value/archives/day",
-                            "/KAZ/VOSTOK/@regions/Abai/Load/P_watt/archives/day",
-                            "/KAZ/CENTER/@regions/Karaganda/load/P_watt/archives/day",
-                            "/KAZ/CENTER/@regions/Ulytau/load/P_watt/archives/day",
-                            "/KAZ/KOSTANAY/@regions/Kostanay/load/P_watt/archives/day",
-                            "/KAZ/SEVER/@regions/Pavlodar/load/P_watt/archives/day",
-                            "/KAZ/AKMOLA/@regions/Akmola/load/@models/P_watt/archives/day",
-                            "/KAZ/AKMOLA/@regions/Kokshetau/load/P_watt/archives/day",
-                            "/KAZ/AKMOLA/@regions/North Kazakhstan/load/P_watt/archives/day",
-                            "/KAZ/AKTOBE/@regions/Aktobe/load/P_watt/archives/day"
+                            "/KAZ/VOSTOK/@regions/East Kazakhstan/load/@models/P_watt/archives/day",
+                            "/KAZ/VOSTOK/@regions/Abai/load/@models/P_watt/archives/day",
+                            "/KAZ/CENTER/@regions/Karaganda/load/@models/P_watt/archives/day",
+                            "/KAZ/CENTER/@regions/Ulytau/load/@models/P_watt/archives/day",
+                            "/KAZ/KOSTANAY/@regions/Kostanay/load/@models/P_watt/archives/day",
+                            "/KAZ/SEVER/@regions/Pavlodar/load/@models/P_watt/archives/day",
+                            "/KAZ/AKMOLA/@regions/Akmola/load/@models/@models/P_watt/archives/day",
+                            "/KAZ/AKMOLA/@regions/Kokshetau/load/@models/P_watt/archives/day",
+                            "/KAZ/AKMOLA/@regions/North Kazakhstan/load/@models/P_watt/archives/day",
+                            "/KAZ/AKTOBE/@regions/Aktobe/load/@models/P_watt/archives/day"
                         ],
                         aggregate:"integral"
                     },
@@ -116,12 +116,12 @@ function(VARS,element,context){
                             value:{
                                 archives:[
                                     // Восточно-Казахстанская область
-                                    "/KAZ/VOSTOK/UK_TEC/Pgen_sum/archives/day",
-                                    "/KAZ/VOSTOK/Sogr_TEC/Pgen_sum/archives/day",
-                                    "/KAZ/VOSTOK/Rid_TEC/Pgen_sum/archives/day",
+                                    "/KAZ/VOSTOK/UK_TEC/@models/P_watt/archives/day",
+                                    "/KAZ/VOSTOK/Sogr_TEC/@models/P_watt/archives/day",
+                                    "/KAZ/VOSTOK/Rid_TEC/@models/P_watt/archives/day",
 
                                     // Абайская область
-                                    "/KAZ/VOSTOK/Sem_TEC-1/Pgen_sum/archives/day",
+                                    "/KAZ/VOSTOK/Sem_TEC-1/@models/P_watt/archives/day",
 
                                     // Карагандинская область
                                     "/KAZ/CENTER/Kar_GRES-1/@models/P_watt/archives/day",
@@ -329,11 +329,11 @@ function(VARS,element,context){
                     id:"Потребление",
                     value:{
                         archives:[
-                            "/KAZ/ALMATY/@regions/Almaty/load/P_watt/archives/day",
-                            "/KAZ/ALMATY/@regions/Zhetysu/load/P_watt/archives/day",
-                            "/KAZ/UZHNIY/@regions/Zhambyl/load/P_watt/archives/day",
-                            "/KAZ/UZHNIY/@regions/KysylOrda/load/P_watt/archives/day",
-                            "/KAZ/UZHNIY/@regions/Turkestan/load/P_watt/archives/day"
+                            "/KAZ/ALMATY/@regions/Almaty/load/@models/P_watt/archives/day",
+                            "/KAZ/ALMATY/@regions/Zhetysu/load/@models/P_watt/archives/day",
+                            "/KAZ/UZHNIY/@regions/Zhambyl/load/@models/P_watt/archives/day",
+                            "/KAZ/UZHNIY/@regions/KysylOrda/load/@models/P_watt/archives/day",
+                            "/KAZ/UZHNIY/@regions/Turkestan/load/@models/P_watt/archives/day"
                         ],
                         aggregate:"integral"
                     },
@@ -564,9 +564,9 @@ function(VARS,element,context){
                     id:"Потребление",
                     value:{
                         archives:[
-                            "/KAZ/ZAPAD/@regions/Atyrau/load/P_watt/archives/day",
-                            "/KAZ/ZAPAD/@regions/Mangystau/load/P_watt/archives/day",
-                            "/KAZ/ZAPAD/@regions/West Kazakhstan/load/P_watt/archives/day"
+                            "/KAZ/ZAPAD/@regions/Atyrau/load/@models/P_watt/archives/day",
+                            "/KAZ/ZAPAD/@regions/Mangystau/load/@models/P_watt/archives/day",
+                            "/KAZ/ZAPAD/@regions/West Kazakhstan/load/@models/P_watt/archives/day"
                         ],
                         aggregate:"integral"
                     },
