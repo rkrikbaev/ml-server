@@ -1,9 +1,9 @@
 async function(VARS,element,context){
-  window.__dialog_screen = element;
-  
+  const ViewPath = VARS.path.get();
+  const arcName = element._properties.__archiveName;
   fp.rt.get_server_time((time) => {
     const pattern = '/root/FP/prototypes/model_control/fields';
-    const path = window.__worker;
+    const path = ViewPath;
             
     let colorList = [
       "#c9252d",
@@ -11,7 +11,7 @@ async function(VARS,element,context){
       "#cb6f10",
       "#4d2380ff"
     ];
-    console.log(path);
+    console.log(arcName, path);
 
     if(path !== null && path !== undefined && path.length > 0){
       const query = `GET task_status, task_message, task_updated, title, input from * WHERE AND(.path = '${path}', .pattern = $oid('${pattern}') )`;
@@ -21,9 +21,9 @@ async function(VARS,element,context){
           // Set status fields
           if(result.set.length >= 1){
               context.__status.set({value : result.set[0].fields.task_status});
-              context.__message.set({value : result.set[0].fields.task_message});
+            //   context.__message.set({value : result.set[0].fields.task_message});
             //   context.__updated.set({value : result.set[0].fields.task_updated});
-              context.__model_name.set({value : result.set[0].fields.title});
+            //   context.__model_name.set({value : result.set[0].fields.title});
           }
 
           // Init trend archives
@@ -90,8 +90,8 @@ async function(VARS,element,context){
           }
           arr.push(
               {
-                "oid": path + "/archives/out_value",
-                "caption": "out_value",
+                "oid": path + "/archives/" + arcName,
+                "caption": arcName,
                 "axis": "y",
                 "type": "archive",
                 "group": "Predict",
@@ -107,8 +107,8 @@ async function(VARS,element,context){
           );
           context.__trend_element.pause();
           const oneDay = 24*60*60*1000;
-          const from = Math.floor((time - 7 * oneDay) / oneDay) * oneDay - 5 * 60 * 60 * 1000;
-          const to = from + 9 * oneDay;
+          const from = Math.floor((time - 1 * oneDay) / oneDay) * oneDay - 5 * 60 * 60 * 1000;
+          const to = from + 2 * oneDay;
           // console.log(from, to);
           
           context.__trend_element.set({archives:arr});
