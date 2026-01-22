@@ -184,7 +184,7 @@ def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray,
         raise ValueError('NaN values in timestamps')
     
     # Get QDS
-    qds = np.array([qds for _, _, qds in values], dtype=int)
+    qds = np.array([QDS_ERROR if qds is None else qds for _, _, qds in values], dtype=int)
 
     # Get y
     y = np.array([val for _, val, _ in values], dtype=float)
