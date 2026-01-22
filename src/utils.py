@@ -94,6 +94,9 @@ MES_TO_REGION = {
     'Sarbajskij_MES': 'KOSTANAY',
 }
 
+QDS_ERROR = 128  # error bit in QDS
+QDS_NEGATIVE_PREDICTION = 64  # negative prediction bit in QDS
+
 
 # https://stackoverflow.com/a/46801075
 def get_valid_filename(name, faceplate=False):
@@ -172,7 +175,7 @@ def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray,
         raise ValueError('Zero len of dataset')
 
     # Get timestamps
-    timestamps = np.array(timestamps_to_timezoned_timestamps([ts for ts, _ in values], GMT_TO_ASTANA_HOURS), dtype=int)
+    timestamps = np.array(timestamps_to_timezoned_timestamps([ts for ts, _, _ in values], GMT_TO_ASTANA_HOURS), dtype=int)
     
     # Assert no nans in timestamps
     has_nan = np.any(np.isnan(timestamps))
@@ -180,14 +183,22 @@ def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray,
         logger.info('NaN values in timestamps')
         raise ValueError('NaN values in timestamps')
     
+    # Get QDS
+    qds = np.array([qds for _, _, qds in values], dtype=int)
+
     # Get y
-    y = np.array([val for _, val in values], dtype=float)
+    y = np.array([val for _, val, _ in values], dtype=float)
+
+    # For nan values in y, force corresponding qds to 128 (error)
+    for i in range(len(y)):
+        if np.isnan(y[i]):
+            qds[i] |= QDS_ERROR  # set error bit
 
     # Interpolate nan values in y
     if interpolate:
         y = interpolate_nan_1d(y)
 
-    return y, timestamps
+    return timestamps, y, qds
 
 
 def init_model(model_rel_dirpath: str | None, step: int):
