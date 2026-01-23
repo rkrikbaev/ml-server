@@ -53,21 +53,12 @@ def extract_features(
     normalization: Dict[str, Dict[str, float]],
     offset_days: int,
 ):
-    sub, div, month_mean = normalization['sub'], normalization['div'], normalization['month_mean']
+    sub, div = normalization['sub'], normalization['div']
 
     # Prepare pred timestamps as + 2 of the feature days
     logger.info(f'len(timestamps[0]): {len(timestamps[0])}, timestamps[0]: {timestamps[0]}')
     pred_timestamps = build_pred_timestamps(timestamps[0], offset_days)
     logger.info(f'len(pred_timestamps): {len(pred_timestamps)}, pred_timestamps: {pred_timestamps}')
-
-    # Calculate ratio of train period month mean 
-    # to current mean
-    ratio = 1.0
-    current_mean = np.mean(y[0])
-    if current_mean is not None:
-        current_mean = (current_mean - sub['y']) / div['y']
-        month = str(get_month(timestamps[0]))
-        ratio = month_mean[month] / current_mean
 
     # Shallow copy as we modify the lists (not arrays in it)
     # below
@@ -86,10 +77,7 @@ def extract_features(
     values = []
     for y_, feature_name in zip(y, ['y', 'temperature']):
         # Normalize
-        y_ = (y_ - sub[feature_name]) / div[feature_name]
-        if feature_name == 'y':
-            y_ = y_ * ratio
-        
+        y_ = (y_ - sub[feature_name]) / div[feature_name]        
         values.append(y_)
 
     # Add calendar features
