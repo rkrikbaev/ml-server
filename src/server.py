@@ -23,7 +23,15 @@ from fastapi import FastAPI, Request
 from typing import List
 
 from inference import predict, predict_default, get_full_days_mask
-from utils import extract_data, init_model, QDS_ERROR, QDS_NEGATIVE_PREDICTION
+from utils import (
+    extract_data, 
+    init_model, 
+    QDS_BASE,
+    QDS_ERROR, 
+    QDS_NEGATIVE_PREDICTION,
+    QDS_FORCE_ONLINE,
+    QDS_DEFAULT_MODEL,
+)
 
 
 app = FastAPI()
@@ -107,7 +115,8 @@ async def _process_data(request: Request):
     
     # Prepare base QDS for predictions
     # TODO: get QDS from model
-    base_pred_qds = 0
+    # - if the inputs are too different from training data, set corresponding bits
+    base_pred_qds = QDS_BASE
 
     # Init model
     logger.info(f"Init model from path: {model_path}, step: {step}, online: {online}")
@@ -115,7 +124,7 @@ async def _process_data(request: Request):
     if model is None:
         logger.warning(f"Cannot init model from path {model_path}, using online model instead")
         online = True
-        base_pred_qds |= QDS_ERROR  # set error bit
+        base_pred_qds |= QDS_FORCE_ONLINE  # set error bit
         model = init_model('none', step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
@@ -125,7 +134,7 @@ async def _process_data(request: Request):
             y=y,
             timestamps=timestamps,
         )
-        base_pred_qds |= QDS_ERROR  # set error bit
+        base_pred_qds |= QDS_DEFAULT_MODEL  # set error bit
         r['task_status'] = 'ОШИБКА'
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
