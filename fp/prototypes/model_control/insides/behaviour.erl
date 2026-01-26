@@ -180,12 +180,13 @@ response(ResponseBody, ModelPath) when is_binary(ResponseBody) ->
 
 %% 3. Если данные — список (proplist), конвертируем в Map для единообразия
 response(ResponseList, ModelPath) when is_list(ResponseList), is_binary(ModelPath) ->
+    ?LOGDEBUG("ResponseList: ~p", [ResponseList]),
     response(maps:from_list(ResponseList), ModelPath);
 
 %% 4. Основной обработчик (когда данные уже Map, а путь — Binary)
 response(DataMap, ModelPath) when is_map(DataMap), is_binary(ModelPath) ->
     ?LOGDEBUG("Processing model response for: ~p", [ModelPath]),
-    
+    ?LOGDEBUG("DataMap: ~p", [DataMap]),
     case fp_db:read_fields(fp_db:open(ModelPath), [<<"name">>]) of
         ModelConfig when is_map(ModelConfig) ->
             ArchiveName = maps:get(<<"name">>, ModelConfig, <<"out_value">>),
@@ -195,14 +196,15 @@ response(DataMap, ModelPath) when is_map(DataMap), is_binary(ModelPath) ->
             DataPoints  = maps:get(<<"task_output">>, DataMap, []),
             TaskStatus  = maps:get(<<"task_status">>, DataMap, <<"ERROR">>),
             TaskMessage = maps:get(<<"task_message">>, DataMap, <<"No message">>),
-
+            TaskState = maps:from_list(maps:get(<<"state">>, DataMap )),
+            ?LOGDEBUG("TaskState: ~p", [TaskState]),
             case transform_dataset(DataPoints) of
                 {ok, []} -> 
                     ?LOGWARNING("No valid data points to write for ~p", [ModelPath]);
                 {ok, Points} ->
                     case commit(Points, ArchiveMountPointPath) of
                         {ok, _} -> 
-                            ?LOGDEBUG("Model ~p: wrote ~p points", [ModelPath, length(Points)]);
+                            ?LOGDEBUG("Model ~p: wrote ~p points", [ArchiveMountPointPath, length(Points)]);
                         {error, Reason} -> 
                             ?LOGERROR("Commit failed for ~p: ~p", [ModelPath, Reason])
                     end;
@@ -214,7 +216,8 @@ response(DataMap, ModelPath) when is_map(DataMap), is_binary(ModelPath) ->
             fp_db:edit_object(fp_db:open(ModelPath), #{
                 <<"task_status">> => TaskStatus,
                 <<"task_message">> => TaskMessage,
-                <<"task_updated">> => list_to_binary(utc_time())
+                <<"task_updated">> => list_to_binary(utc_time()),
+                <<"state">> => iolist_to_binary(json:encode(TaskState))
             });
 
         Error ->
@@ -318,8 +321,7 @@ ts_series(_,_,_)->
 transform_dataset(Series) when is_list(Series) ->
     try
         T = [ {convert_timestamp_to_ms(Ts), V}
-              || [Ts, V] <- Series,
-                 V =/= none, V =/= undefined ],
+              || [Ts, V, _Q] <- Series ],
         {ok, T}
     catch
         _:Err ->
@@ -387,17 +389,17 @@ to_number(_) -> error.
 %% ---- Writing back ----
 
 commit(Data, Archive) ->
-    % ?LOGDEBUG("Data: ~p",[Data]),
-    % ?LOGDEBUG("Archive: ~p",[Archive]),
+    ?LOGDEBUG("Archive: ~p",[Archive]),
     try
         {From, _} = hd(Data),
-        {To,   _} = lists:last(Data),
+        {To, _} = lists:last(Data),
         % ?LOGDEBUG("Delete range From=~p To=~p", [From, To]),
         ArchiveOID = ?OID( Archive ),
         DBName = fp_archive:get_storage(ArchiveOID),
         % ?LOGDEBUG("DBName: ~p", [DBName]),
         fp_ts:delete_period(project_ts_database, [ArchiveOID], From, To),
         % ?LOGDEBUG("Data was deleted period from: ~p, to: ~p",[From, To]),
+        ?LOGDEBUG("Data: ~p",[Data]),
         fp_archive:insert_values(Archive, Data),
         ?LOGDEBUG("Data commited..."),
         {ok, none}
