@@ -94,6 +94,32 @@ MES_TO_REGION = {
     'Sarbajskij_MES': 'KOSTANAY',
 }
 
+# IV — Invalid (128)
+#   Самый высокий приоритет. Если установлен — значение недостоверно и не используется в расчетах.
+#   → всегда перекрывает все остальные.
+# NT — Not topical / Timeout (64)
+#   Данные устарели. Обычно трактуются как недостоверные, но ниже по приоритету, чем invalid.
+# BL — Blocked (16)
+#   Значение не поступает из-за блокировки источника. Отображается как недоступное, но не всегда снимается из расчетов (зависит от конфигурации).
+# SB — Substituted (32)
+#   Значение заменено оператором или системой. Достоверность условная, ниже по приоритету, чем ошибки IV/NT/BL.
+# OV — Overflow (1)
+#   Признак переполнения/некорректного диапазона. Используется в основном для аналогов. Обычно отображается как предупреждение, но данные могут учитываться.
+# RES — Резервные биты (2–4)
+#   Используются по назначению (например, специфично для типа ТИ/ТС). По приоритету — ниже IV/NT, но выше OV.
+# QDS = 0
+#   Сигнал в норме.
+
+
+QDS_BASE = 0  # base QDS value
+QDS_NEGATIVE_PREDICTION = 1  # negative prediction bit in QDS
+
+QDS_ERROR = 128  # error bit in QDS
+QDS_FORCE_ONLINE = 32  # force online model bit in QDS
+QDS_DEFAULT_MODEL = 32  # default model used bit in QDS
+QDS_NAN_INPUT = 2  # nan input bit in QDS
+QDS_NONE_QDS = 128  # no QDS provided
+
 
 # https://stackoverflow.com/a/46801075
 def get_valid_filename(name, faceplate=False):
@@ -172,7 +198,7 @@ def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray,
         raise ValueError('Zero len of dataset')
 
     # Get timestamps
-    timestamps = np.array(timestamps_to_timezoned_timestamps([ts for ts, _ in values], GMT_TO_ASTANA_HOURS), dtype=int)
+    timestamps = np.array(timestamps_to_timezoned_timestamps([ts for ts, _, _ in values], GMT_TO_ASTANA_HOURS), dtype=int)
     
     # Assert no nans in timestamps
     has_nan = np.any(np.isnan(timestamps))
@@ -180,14 +206,22 @@ def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray,
         logger.info('NaN values in timestamps')
         raise ValueError('NaN values in timestamps')
     
+    # Get QDS
+    qds = np.array([QDS_NONE_QDS if qds is None else qds for _, _, qds in values], dtype=int)
+
     # Get y
-    y = np.array([val for _, val in values], dtype=float)
+    y = np.array([val for _, val, _ in values], dtype=float)
+
+    # For nan values in y, force corresponding qds to 128 (error)
+    for i in range(len(y)):
+        if np.isnan(y[i]):
+            qds[i] |= QDS_NAN_INPUT  # set error bit
 
     # Interpolate nan values in y
     if interpolate:
         y = interpolate_nan_1d(y)
 
-    return y, timestamps
+    return timestamps, y, qds
 
 
 def init_model(model_rel_dirpath: str | None, step: int):

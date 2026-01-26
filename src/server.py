@@ -20,9 +20,18 @@ import asyncio
 import uvicorn
 import numpy as np
 from fastapi import FastAPI, Request
+from typing import List
 
 from inference import predict, predict_default, get_full_days_mask
-from utils import extract_data, init_model
+from utils import (
+    extract_data, 
+    init_model, 
+    QDS_BASE,
+    QDS_ERROR, 
+    QDS_NEGATIVE_PREDICTION,
+    QDS_FORCE_ONLINE,
+    QDS_DEFAULT_MODEL,
+)
 
 
 app = FastAPI()
@@ -39,6 +48,21 @@ semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 def check_sbre(y, timestamps):
     mask = get_full_days_mask(timestamps, offset_days=1)
     return not np.all(np.isnan(y[1][mask]))
+
+
+def build_output_qds(base_pred_qds: int, preds: np.ndarray, input_qds: List[np.ndarray]) -> np.ndarray:
+    """Build output QDS based on input QDS and base prediction QDS."""
+
+    # Calculate single QDS value for all the predictions
+    # as bitwise OR of all input QDS and base prediction QDS
+    output_qds = np.bitwise_or.reduce(np.array([base_pred_qds] + [int(np.bitwise_or.reduce(qd)) for qd in input_qds]))
+    output_qds = np.full(shape=preds.shape, fill_value=output_qds, dtype=int)
+
+    # If < 0, set negative prediction bit
+    negative_mask = preds < 0
+    output_qds[negative_mask] |= QDS_NEGATIVE_PREDICTION
+
+    return output_qds
 
 
 async def _process_data(request: Request):
@@ -76,33 +100,41 @@ async def _process_data(request: Request):
             'task_output': []
         }
 
-    y, timestamps = [], []
+    y, timestamps, qds = [], [], []
     for i in range(len(d['task_input'])):
         try:
-            y_, timestamps_ = extract_data(d['task_input'][i], interpolate=not online)
+            timestamps_, y_, qds_ = extract_data(d['task_input'][i], interpolate=not online)
             y.append(y_)
             timestamps.append(timestamps_)
+            qds.append(qds_)
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
             r['task_message'] = f'У задача с идентификатором {task_id} некорректные данные в датасете'
             logger.error(e)
             return r
     
+    # Prepare base QDS for predictions
+    # TODO: get QDS from model
+    # - if the inputs are too different from training data, set corresponding bits
+    base_pred_qds = QDS_BASE
+
     # Init model
     logger.info(f"Init model from path: {model_path}, step: {step}, online: {online}")
     model = init_model(model_path, step)
     if model is None:
         logger.warning(f"Cannot init model from path {model_path}, using online model instead")
         online = True
+        base_pred_qds |= QDS_FORCE_ONLINE  # set error bit
         model = init_model('none', step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
-
+    logger.debug(f"len(qds): {len(qds)}, {[len(qds_) for qds_ in qds]}")
     if (not model and not online):
         preds, pred_timestamps = predict_default(
             y=y,
             timestamps=timestamps,
         )
+        base_pred_qds |= QDS_DEFAULT_MODEL  # set error bit
         r['task_status'] = 'ОШИБКА'
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
@@ -118,16 +150,22 @@ async def _process_data(request: Request):
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
             r['task_message'] = f'Ошибка вызова прогноза для задачи с идентификатором {task_id}'
+            base_pred_qds |= QDS_ERROR  # set error bit
             logger.error(e)
             return r
     logger.info(preds)
+
+    # Calculate output QDS & total QDS
+    result_qds = build_output_qds(base_pred_qds=base_pred_qds, preds=preds, input_qds=qds)
+    total_qds = int(np.bitwise_or.reduce(result_qds))
+    logger.info(f"total_qds: {total_qds}, result_qds: {result_qds}")
 
     # Clip negatives to 0 if needed
     if clip_negatives_to_0:
         preds = np.maximum(preds, 0)
 
     # Prepare response
-    result = [[int(ts), round(float(p), 1)] for ts, p in zip(pred_timestamps, preds)]
+    result = [[int(ts), round(float(p), 1), int(q)] for ts, p, q in zip(pred_timestamps, preds, result_qds)]
 
     # Replace nans with None
     for i in range(len(result)):
@@ -139,6 +177,7 @@ async def _process_data(request: Request):
     logger.info(f"len(result): {len(result)}")
 
     r['task_status'] = 'УСПЕШНО'
+    r['state'] = {'quality': total_qds}
     r['task_output']= result
 
     logger.info(f"Output: {r}")
