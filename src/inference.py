@@ -211,10 +211,10 @@ def predict(
         assert y_pred.shape[0] == 1
         y_pred = y_pred.reshape(-1)[:output_range]
     elif isinstance(model, ModelWithMetaInfoProphet):
-        last_past_index, pred_timestamps = get_pred_timestamps(timestamps[0], step, output_range)
+        _, pred_timestamps = get_pred_timestamps(timestamps[0], step, output_range)
         df = pd.DataFrame(
             {
-                'ds': pd.to_datetime(timestamps[0][last_past_index:last_past_index+output_range], unit='ms'),
+                'ds': pd.to_datetime(pred_timestamps, unit='ms'),
             }
         )
         df_pred = model.predict(df)
