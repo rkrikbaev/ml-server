@@ -154,9 +154,9 @@ def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int):
         pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
         pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
     elif step == 86400000:
-        # Round to the current month start, then add one month
-        pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
+        # Round to the current day start, then add one day
+        pred_start_dt = pred_start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        pred_start_dt = pred_start_dt + pd.DateOffset(days=1)
         pred_dt = [pred_start_dt + pd.DateOffset(days=i) for i in range(output_range)]
     elif step == 3600000:
         # Round to the current hour start, then add one hour
