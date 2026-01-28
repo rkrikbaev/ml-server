@@ -2,14 +2,15 @@ import logging
 import numpy as np
 import pandas as pd
 from copy import copy
-from typing import List, Dict
+from typing import List
 
 from fpforecast.models.ar import ModelWithMetaInfoAr
 from fpforecast.models.prophet import ModelWithMetaInfoProphet
-from utils import timestamps_to_calendar_features, SbreModel, GMT_TO_ASTANA_HOURS
+from utils import SbreModel
 
 
 logger = logging.getLogger(__file__)
+GMT_TO_ASTANA_HOURS = 5
 
 
 def get_last_past_index(timestamps: np.ndarray) -> int:
@@ -145,9 +146,31 @@ def predict_default(
     return y_pred, pred_timestamps
 
 
+def timestamps_to_timezoned_timestamps(
+    timestamps: List[int] | np.ndarray,
+    timezone_offset_hours: int
+) -> np.ndarray:
+    # Convert to pandas datetime
+    df = pd.DataFrame({'dt': timestamps})
+    df['dt'] = pd.to_datetime(df['dt'], unit='ms')
+
+    # Apply timezone offset
+    df['dt'] = df['dt'] + pd.to_timedelta(timezone_offset_hours, unit='h')
+
+    # Convert back to timestamps in ms
+    return (df['dt'].astype(np.int64) // 10**6).values
+
+
+def get_last_past_index(timestamps: np.ndarray) -> int:
+    return len(timestamps) // 2
+
+
 def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int):
-    last_past_index = get_last_past_index(ts)
-    pred_start_dt = pd.to_datetime(ts[last_past_index], unit='ms')
+    # Convert to Astana timezone
+    ts_zoned = timestamps_to_timezoned_timestamps(ts, GMT_TO_ASTANA_HOURS)
+
+    last_past_index = get_last_past_index(ts_zoned)
+    pred_start_dt = pd.to_datetime(ts_zoned[last_past_index], unit='ms')
     if step == 2592000000:
         # Round to the current month start, then add one month
         pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -165,15 +188,15 @@ def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int):
         pred_dt = [pred_start_dt + pd.DateOffset(hours=i) for i in range(output_range)]
     else:
         # Do not round for other steps
-        pass   
-
-    # Add back offset as we removed it with replace by rounding
-    pred_dt = [dt - pd.DateOffset(hours=GMT_TO_ASTANA_HOURS) for dt in pred_dt]
+        pass
 
     pred_timestamps = [
         int(dt.timestamp() * 1000) for dt in pred_dt
     ]
     pred_timestamps = np.array(pred_timestamps, dtype=int)
+
+    # Convert back to GMT timezone
+    pred_timestamps = timestamps_to_timezoned_timestamps(pred_timestamps, -GMT_TO_ASTANA_HOURS)
 
     return last_past_index, pred_timestamps
     

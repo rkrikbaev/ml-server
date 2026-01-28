@@ -174,22 +174,6 @@ def timestamps_to_calendar_features(timestamps: List[int] | np.ndarray, n_predic
     }
 
 
-def timestamps_to_timezoned_timestamps(
-    timestamps: List[int] | np.ndarray,
-    timezone_offset_hours: int
-) -> np.ndarray:
-    # Convert to pandas datetime
-    df = pd.DataFrame({'dt': timestamps})
-    df['dt'] = pd.to_datetime(df['dt'], unit='ms')
-
-    # Apply timezone offset
-    df['dt'] = df['dt'] + pd.to_timedelta(timezone_offset_hours, unit='h')
-
-    # Convert back to timestamps in ms
-    return (df['dt'].astype(np.int64) // 10**6).values
-
-
-GMT_TO_ASTANA_HOURS = -5
 def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray, np.ndarray]:
     if len(values) > 0:
         logger.debug(f'dataset values: {values}')
@@ -198,7 +182,7 @@ def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray,
         raise ValueError('Zero len of dataset')
 
     # Get timestamps
-    timestamps = np.array(timestamps_to_timezoned_timestamps([ts for ts, _, _ in values], GMT_TO_ASTANA_HOURS), dtype=int)
+    timestamps = np.array([ts for ts, _, _ in values], dtype=int)
     
     # Assert no nans in timestamps
     has_nan = np.any(np.isnan(timestamps))
