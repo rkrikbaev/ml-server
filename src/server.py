@@ -27,10 +27,8 @@ from utils import (
     extract_data, 
     init_model, 
     QDS_BASE,
-    QDS_ERROR, 
-    QDS_NEGATIVE_PREDICTION,
-    QDS_FORCE_ONLINE,
-    QDS_DEFAULT_MODEL,
+    QDS_INCORRECT_INPUT,
+    QDS_ERROR
 )
 
 
@@ -48,21 +46,6 @@ semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 def check_sbre(y, timestamps):
     mask = get_full_days_mask(timestamps, offset_days=1)
     return not np.all(np.isnan(y[1][mask]))
-
-
-def build_output_qds(base_pred_qds: int, preds: np.ndarray, input_qds: List[np.ndarray]) -> np.ndarray:
-    """Build output QDS based on input QDS and base prediction QDS."""
-
-    # Calculate single QDS value for all the predictions
-    # as bitwise OR of all input QDS and base prediction QDS
-    output_qds = np.bitwise_or.reduce(np.array([base_pred_qds] + [int(np.bitwise_or.reduce(qd)) for qd in input_qds]))
-    output_qds = np.full(shape=preds.shape, fill_value=output_qds, dtype=int)
-
-    # If < 0, set negative prediction bit
-    negative_mask = preds < 0
-    output_qds[negative_mask] |= QDS_NEGATIVE_PREDICTION
-
-    return output_qds
 
 
 async def _process_data(request: Request):
@@ -124,7 +107,7 @@ async def _process_data(request: Request):
     if model is None:
         logger.warning(f"Cannot init model from path {model_path}, using online model instead")
         online = True
-        base_pred_qds |= QDS_FORCE_ONLINE  # set error bit
+        base_pred_qds = QDS_ERROR
         model = init_model('none', step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
@@ -134,7 +117,7 @@ async def _process_data(request: Request):
             y=y,
             timestamps=timestamps,
         )
-        base_pred_qds |= QDS_DEFAULT_MODEL  # set error bit
+        base_pred_qds = QDS_ERROR
         r['task_status'] = 'ОШИБКА'
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
@@ -150,14 +133,24 @@ async def _process_data(request: Request):
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
             r['task_message'] = f'Ошибка вызова прогноза для задачи с идентификатором {task_id}'
-            base_pred_qds |= QDS_ERROR  # set error bit
+            base_pred_qds = QDS_ERROR
             logger.error(e)
             return r
     logger.info(preds)
 
     # Calculate output QDS & total QDS
-    result_qds = build_output_qds(base_pred_qds=base_pred_qds, preds=preds, input_qds=qds)
-    total_qds = int(np.bitwise_or.reduce(result_qds))
+    input_total_qds = QDS_BASE
+    qds = np.array(qds)
+    if (np.bitwise_or.reduce(qds.ravel()) & QDS_INCORRECT_INPUT) == QDS_INCORRECT_INPUT:
+        input_total_qds = QDS_INCORRECT_INPUT  # At least one incorrect input
+    if (
+        (np.bitwise_and.reduce(qds.ravel()) & QDS_INCORRECT_INPUT) == QDS_INCORRECT_INPUT or
+        (np.bitwise_or.reduce(qds.ravel()) & QDS_ERROR) == QDS_ERROR
+    ):
+        input_total_qds = QDS_ERROR  # All inputs incorrect or at least one error input
+    
+    total_qds = max(base_pred_qds, input_total_qds)
+    result_qds = np.full_like(preds, total_qds, dtype=int)
     logger.info(f"total_qds: {total_qds}, result_qds: {result_qds}")
 
     # Clip negatives to 0 if needed
