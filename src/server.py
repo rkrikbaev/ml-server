@@ -80,7 +80,8 @@ async def _process_data(request: Request):
             'task_id': task_id,
             'task_status': task_status,
             'task_message': task_message,
-            'task_output': []
+            'task_output': [],
+            'state': {'quality': QDS_ERROR},
         }
 
     y, timestamps, qds = [], [], []
@@ -93,6 +94,7 @@ async def _process_data(request: Request):
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
             r['task_message'] = f'У задача с идентификатором {task_id} некорректные данные в датасете'
+            r['state'] = {'quality': QDS_ERROR}
             logger.error(e)
             return r
     
@@ -133,6 +135,7 @@ async def _process_data(request: Request):
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
             r['task_message'] = f'Ошибка вызова прогноза для задачи с идентификатором {task_id}'
+            r['state'] = {'quality': QDS_ERROR}
             base_pred_qds = QDS_ERROR
             logger.error(e)
             return r
