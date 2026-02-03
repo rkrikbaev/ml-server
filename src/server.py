@@ -19,8 +19,8 @@ import http
 import asyncio
 import uvicorn
 import numpy as np
+from collections import Counter
 from fastapi import FastAPI, Request
-from typing import List
 
 from inference import predict, predict_default, get_full_days_mask
 from utils import (
@@ -28,7 +28,12 @@ from utils import (
     init_model, 
     QDS_BASE,
     QDS_INCORRECT_INPUT,
-    QDS_ERROR
+    QDS_ERROR,
+    QDS_CRITICAL_VALUES, 
+    QDS_NONCRITICAL_VALUES,
+    NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT,
+    CRITICAL_THRESHOLD_TO_SET_ERROR,
+    NONCRITICAL_THRESHOLD_TO_SET_ERROR,
 )
 
 
@@ -98,6 +103,31 @@ async def _process_data(request: Request):
             logger.error(e)
             return r
     
+    # Calculate input total
+    qds = np.array(qds).ravel()
+    qds_counts = Counter()
+    for q in qds:
+        # If at least one critical bit is set, count as critical
+        for bit in QDS_CRITICAL_VALUES:
+            if (q & bit) == bit:
+                qds_counts['CRITICAL'] += 1
+                break
+
+        # If at least one non-critical bit is set, count as non-critical
+        for bit in QDS_NONCRITICAL_VALUES:
+            if (q & bit) == bit:
+                qds_counts['NON_CRITICAL'] += 1
+                break
+
+    critical_input_freq = qds_counts['CRITICAL'] / len(qds)
+    non_critical_input_freq = qds_counts['NON_CRITICAL'] / len(qds)
+    
+    input_total_qds = QDS_BASE
+    if non_critical_input_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
+        input_total_qds = QDS_INCORRECT_INPUT
+    if critical_input_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR or non_critical_input_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
+        input_total_qds = QDS_ERROR
+
     # Prepare base QDS for predictions
     # TODO: get QDS from model
     # - if the inputs are too different from training data, set corresponding bits
@@ -140,18 +170,8 @@ async def _process_data(request: Request):
             logger.error(e)
             return r
     logger.info(preds)
-
-    # Calculate output QDS & total QDS
-    input_total_qds = QDS_BASE
-    qds = np.array(qds)
-    if (np.bitwise_or.reduce(qds.ravel()) & QDS_INCORRECT_INPUT) == QDS_INCORRECT_INPUT:
-        input_total_qds = QDS_INCORRECT_INPUT  # At least one incorrect input
-    if (
-        (np.bitwise_and.reduce(qds.ravel()) & QDS_INCORRECT_INPUT) == QDS_INCORRECT_INPUT or
-        (np.bitwise_or.reduce(qds.ravel()) & QDS_ERROR) == QDS_ERROR
-    ):
-        input_total_qds = QDS_ERROR  # All inputs incorrect or at least one error input
     
+    # Calculate total QDS
     total_qds = max(base_pred_qds, input_total_qds)
     result_qds = np.full_like(preds, total_qds, dtype=int)
     logger.info(f"total_qds: {total_qds}, result_qds: {result_qds}")
