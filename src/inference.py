@@ -154,30 +154,38 @@ def predict(
     output_range: int,
     online: bool,
 ):
+    # По умолчанию считаем, что данные соответствуют распределению
+    is_matching = True  
+
     if isinstance(model, ModelWithMetaInfoAr):
         last_past_index, pred_timestamps = get_pred_timestamps(timestamps[0], step, output_range)
 
-        # Select single window
+        # Подготовка окна данных
         W_past = model.W_past
         W_future = model.W_future
         assert output_range == W_future, \
             f'Output range {output_range} != W_future {W_future} of the AR model'
 
-        # TODO: add more features
         df = pd.DataFrame(
             {
                 'value': y[0][last_past_index-W_past:last_past_index+W_future],
             },
             index=pd.to_datetime(timestamps[0][last_past_index-W_past:last_past_index+output_range], unit='ms')
         )
+
         for feature_info in model.features_info:
             if feature_info.name in df.columns:
                 continue
             df[feature_info.name] = np.nan
-        _, y_pred = model.predict(df)
 
-        assert y_pred.shape[0] == 1
-        y_pred = y_pred.reshape(-1)[:output_range]
+        # Вызов модели: ожидаем (y, y_pred, is_matching)
+        _, y_pred, is_matching = model.predict(df)
+
+        # Приводим y_pred к 1D numpy массиву длиной output_range
+        y_pred = np.asarray(y_pred).reshape(-1)[:output_range]
+        if y_pred.size < output_range:
+            y_pred = np.pad(y_pred, (0, output_range - y_pred.size), constant_values=np.nan)    
+
     elif isinstance(model, ModelWithMetaInfoProphet):
         _, pred_timestamps = get_pred_timestamps(timestamps[0], step, output_range)
         df = pd.DataFrame(
@@ -188,34 +196,28 @@ def predict(
         df_pred = model.predict(df)
         y_pred = df_pred['yhat'].values
         logger.debug(f'{len(y_pred)=}, {y_pred=}')
-    elif isinstance(model, SbreModel):
-        # Return the first input as prediction
-        y_pred = y[1]
 
-        # If it is all NaNs, return nan
+    elif isinstance(model, SbreModel):
+        y_pred = y[1]
         if np.all(np.isnan(y_pred)):
             y_pred = np.full_like(y_pred, np.nan)
-
         pred_timestamps = timestamps[1]
+
     else:
         if online:
-            # If too few data points are not NaN, either 
-            # use the first non-NaN input as prediction
-            # or fill with nans
-            y = y[0][:len(timestamps[0]) // 2]
-            y_non_nan = ~np.isnan(y)
+            y_history = y[0][:len(timestamps[0]) // 2]
+            y_non_nan = ~np.isnan(y_history)
             n_non_nans = y_non_nan.sum()
+            
             if n_non_nans == 0:
-                y = np.full_like(y, np.nan)
+                y_history = np.full_like(y_history, np.nan)
             elif n_non_nans == 1:
-                y = np.full_like(y, y[y_non_nan][0])
+                y_history = np.full_like(y_history, y_history[y_non_nan][0])
 
-            # Fit the model on the provided data
-            # TODO: add other regressors
             df_train = pd.DataFrame(
                 {
                     'ds': pd.to_datetime(timestamps[0][:len(timestamps[0]) // 2], unit='ms'),
-                    'y': y,
+                    'y': y_history,
                 }
             )
             model.fit(df_train)
@@ -225,4 +227,5 @@ def predict(
         df_forecast = model.predict(df_future)
         y_pred = df_forecast['yhat'].values
 
-    return y_pred, pred_timestamps
+    # Возвращаем три параметра: прогноз, метки времени и флаг качества
+    return y_pred, pred_timestamps, is_matching

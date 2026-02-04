@@ -144,6 +144,9 @@ async def _process_data(request: Request):
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
     logger.debug(f"len(qds): {len(qds)}, {[len(qds_) for qds_ in qds]}")
+    
+    is_matching = True  # По умолчанию считаем, что данные соответствуют
+    
     if (not model and not online):
         preds, pred_timestamps = predict_default(
             y=y,
@@ -154,7 +157,7 @@ async def _process_data(request: Request):
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
         try:
-            preds, pred_timestamps = predict(
+            preds, pred_timestamps, is_matching = predict(
                 y=y,
                 timestamps=timestamps,
                 model=model,
@@ -169,8 +172,16 @@ async def _process_data(request: Request):
             base_pred_qds = QDS_ERROR
             logger.error(e)
             return r
+
+    # Если модель посчитала, что входы не соответствуют обучающей выборке — пометим прогноз как некорректный (NT / 64)
+    # Используем max, чтобы не понижать уже установленный более высокий уровень ошибки
+    if not is_matching:
+        base_pred_qds = max(base_pred_qds, QDS_INCORRECT_INPUT)
+
     logger.info(preds)
     
+
+
     # Calculate total QDS
     total_qds = max(base_pred_qds, input_total_qds)
     result_qds = np.full_like(preds, total_qds, dtype=int)
