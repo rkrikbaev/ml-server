@@ -143,7 +143,7 @@ async def _process_data(request: Request):
         model = init_model('none', step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
-    logger.debug(f"len(qds): {len(qds)}, {[len(qds_) for qds_ in qds]}")
+    logger.debug(f"len(qds): {len(qds)}")
     
     is_matching = True  # По умолчанию считаем, что данные соответствуют
     
