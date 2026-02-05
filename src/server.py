@@ -124,9 +124,9 @@ async def _process_data(request: Request):
     
     input_total_qds = QDS_BASE
     if non_critical_input_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
-        input_total_qds = QDS_INCORRECT_INPUT
+        input_total_qds = max(input_total_qds, QDS_INCORRECT_INPUT)
     if critical_input_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR or non_critical_input_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
-        input_total_qds = QDS_ERROR
+        input_total_qds = max(input_total_qds, QDS_ERROR)
 
     # Prepare base QDS for predictions
     # TODO: get QDS from model
@@ -139,7 +139,7 @@ async def _process_data(request: Request):
     if model is None:
         logger.warning(f"Cannot init model from path {model_path}, using online model instead")
         online = True
-        base_pred_qds = QDS_ERROR
+        base_pred_qds = max(base_pred_qds, QDS_ERROR)
         model = init_model('none', step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
@@ -152,7 +152,7 @@ async def _process_data(request: Request):
             y=y,
             timestamps=timestamps,
         )
-        base_pred_qds = QDS_ERROR
+        base_pred_qds = max(base_pred_qds, QDS_ERROR)
         r['task_status'] = 'ОШИБКА'
         r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
     else:
@@ -180,8 +180,6 @@ async def _process_data(request: Request):
 
     logger.info(preds)
     
-
-
     # Calculate total QDS
     total_qds = max(base_pred_qds, input_total_qds)
     result_qds = np.full_like(preds, total_qds, dtype=int)
