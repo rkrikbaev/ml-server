@@ -1,0 +1,6 @@
+# Default: normalize text files and store as LF in the repo
+* text=auto eol=lf
+
+# If you have Windows-only scripts, allow CRLF for those (optional)
+*.bat text eol=crlf
+*.cmd text eol=crlf
