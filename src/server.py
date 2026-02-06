@@ -53,6 +53,13 @@ def check_sbre(y, timestamps):
     return not np.all(np.isnan(y[1][mask]))
 
 
+def append_message(current_message: str, new_message: str) -> str:
+    if current_message:
+        return current_message + '. ' + new_message
+    else:
+        return new_message
+
+
 async def _process_data(request: Request):
     logger.info("Request...")
     [d] = await request.json()
@@ -74,10 +81,10 @@ async def _process_data(request: Request):
         model_path = d.get("model_path", None)
         clip_negatives_to_0 = d.get("clip_negatives_to_0", True)
         online = model_path == 'none'
-        task_message = f'Запущена задача с идентификатором [{task_id}]'
+        task_message = append_message(task_message, f'Запущена задача с идентификатором [{task_id}]')
     except KeyError as e:
         task_status = "ОШИБКА"
-        task_message = f'Ошибка парсинга входящего JSON'
+        task_message = append_message(task_message, f'Ошибка парсинга входящего JSON')
         logger.error(e)
         raise http.HTTPException(status_code=400, detail=task_message)
     finally:
@@ -98,7 +105,7 @@ async def _process_data(request: Request):
             qds.append(qds_)
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
-            r['task_message'] = f'У задача с идентификатором {task_id} некорректные данные в датасете'
+            r['task_message'] = append_message(r['task_message'], f'У задача с идентификатором {task_id} некорректные данные в датасете')
             r['state'] = {'quality': QDS_ERROR}
             logger.error(e)
             return r
@@ -125,8 +132,10 @@ async def _process_data(request: Request):
     input_total_qds = QDS_BASE
     if non_critical_input_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
         input_total_qds = max(input_total_qds, QDS_INCORRECT_INPUT)
+        r['task_message'] = append_message(r['task_message'], f'Входные данные имеют некритичные ошибки ({non_critical_input_freq*100:.1f}% выше либо равны порогу {NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT*100:.1f}%)')
     if critical_input_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR or non_critical_input_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
         input_total_qds = max(input_total_qds, QDS_ERROR)
+        r['task_message'] = append_message(r['task_message'], f'Входные данные имеют критичные ошибки ({critical_input_freq*100:.1f}% выше либо равны порогу {CRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%)')
 
     # Prepare base QDS for predictions
     # TODO: get QDS from model
@@ -140,6 +149,7 @@ async def _process_data(request: Request):
         logger.warning(f"Cannot init model from path {model_path}, using online model instead")
         online = True
         base_pred_qds = max(base_pred_qds, QDS_ERROR)
+        r['task_message'] = append_message(r['task_message'], f'Используется онлайн модель из-за ошибки инициализации модели по пути {model_path}')
         model = init_model('none', step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
@@ -154,7 +164,7 @@ async def _process_data(request: Request):
         )
         base_pred_qds = max(base_pred_qds, QDS_ERROR)
         r['task_status'] = 'ОШИБКА'
-        r['task_message']=f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал.'
+        r['task_message'] = append_message(r['task_message'], f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал')
     else:
         try:
             preds, pred_timestamps, is_matching = predict(
@@ -167,7 +177,7 @@ async def _process_data(request: Request):
             )
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
-            r['task_message'] = f'Ошибка вызова прогноза для задачи с идентификатором {task_id}'
+            r['task_message'] = append_message(r['task_message'], f'Ошибка вызова прогноза для задачи с идентификатором {task_id}')
             r['state'] = {'quality': QDS_ERROR}
             base_pred_qds = QDS_ERROR
             logger.error(e)
