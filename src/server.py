@@ -81,10 +81,10 @@ async def _process_data(request: Request):
         model_path = d.get("model_path", None)
         clip_negatives_to_0 = d.get("clip_negatives_to_0", True)
         online = model_path == 'none'
-        task_message = append_message(task_message, f'Запущена задача с идентификатором [{task_id}]')
+        task_message = append_message(task_message, f'Task started with ID [{task_id}]')
     except KeyError as e:
         task_status = "ОШИБКА"
-        task_message = append_message(task_message, f'Ошибка парсинга входящего JSON')
+        task_message = append_message(task_message, f'Failed to parse input JSON')
         logger.error(e)
         raise http.HTTPException(status_code=400, detail=task_message)
     finally:
@@ -105,8 +105,9 @@ async def _process_data(request: Request):
             qds.append(qds_)
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
-            r['task_message'] = append_message(r['task_message'], f'У задача с идентификатором {task_id} некорректные данные в датасете')
-            r['state'] = {'quality': QDS_ERROR}
+            r['task_message'] = append_message(r['task_message'], f'Invalid dataset for task with ID {task_id}')
+            # r['state'] = {'quality': QDS_ERROR}
+            r['state'] = {'quality': QDS_ERROR, 'message': r['task_message']}
             logger.error(e)
             return r
     
@@ -132,10 +133,13 @@ async def _process_data(request: Request):
     input_total_qds = QDS_BASE
     if non_critical_input_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
         input_total_qds = max(input_total_qds, QDS_INCORRECT_INPUT)
-        r['task_message'] = append_message(r['task_message'], f'Входные данные имеют некритичные ошибки ({non_critical_input_freq*100:.1f}% выше либо равны порогу {NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT*100:.1f}%)')
-    if critical_input_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR or non_critical_input_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
+        r['task_message'] = append_message(r['task_message'], f'Input data contains non-critical errors ({non_critical_input_freq*100:.1f}% above or equal to the threshold {NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT*100:.1f}%)')
+    if non_critical_input_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
         input_total_qds = max(input_total_qds, QDS_ERROR)
-        r['task_message'] = append_message(r['task_message'], f'Входные данные имеют критичные ошибки ({critical_input_freq*100:.1f}% выше либо равны порогу {CRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%)')
+        r['task_message'] = append_message(r['task_message'], f'Input data contains critical errors ({non_critical_input_freq*100:.1f}% above or equal to the threshold {NONCRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}% of non-critical errors)')
+    if critical_input_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR:
+        input_total_qds = max(input_total_qds, QDS_ERROR)
+        r['task_message'] = append_message(r['task_message'], f'Input data contains critical errors ({critical_input_freq*100:.1f}% above or equal to the threshold {CRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%)')
 
     # Prepare base QDS for predictions
     # TODO: get QDS from model
@@ -149,7 +153,7 @@ async def _process_data(request: Request):
         logger.warning(f"Cannot init model from path {model_path}, using online model instead")
         online = True
         base_pred_qds = max(base_pred_qds, QDS_ERROR)
-        r['task_message'] = append_message(r['task_message'], f'Используется онлайн модель из-за ошибки инициализации модели по пути {model_path}')
+        r['task_message'] = append_message(r['task_message'], f'Online model is used due to model initialization error at path {model_path}')
         model = init_model('none', step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
@@ -164,7 +168,7 @@ async def _process_data(request: Request):
         )
         base_pred_qds = max(base_pred_qds, QDS_ERROR)
         r['task_status'] = 'ОШИБКА'
-        r['task_message'] = append_message(r['task_message'], f'Ошибка инициализации, проверьте наличие файлов модели. Результат равен входным данным, наложенным на запрошенный выходной интервал')
+        r['task_message'] = append_message(r['task_message'], f'Model initialization error, check model files. Result equals input data mapped to the requested output interval')
     else:
         try:
             preds, pred_timestamps, is_matching = predict(
@@ -177,8 +181,9 @@ async def _process_data(request: Request):
             )
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
-            r['task_message'] = append_message(r['task_message'], f'Ошибка вызова прогноза для задачи с идентификатором {task_id}')
-            r['state'] = {'quality': QDS_ERROR}
+            r['task_message'] = append_message(r['task_message'], f'Forecast call error for task with ID {task_id}')
+            # r['state'] = {'quality': QDS_ERROR}
+            r['state'] = {'quality': QDS_ERROR, 'message': r['task_message']}
             base_pred_qds = QDS_ERROR
             logger.error(e)
             return r
@@ -212,7 +217,8 @@ async def _process_data(request: Request):
     logger.info(f"len(result): {len(result)}")
 
     r['task_status'] = 'УСПЕШНО'
-    r['state'] = {'quality': total_qds}
+    # r['state'] = {'quality': total_qds}
+    r['state'] = {'quality': total_qds, 'message': r['task_message']}
     r['task_output']= result
 
     logger.info(f"Output: {r}")
