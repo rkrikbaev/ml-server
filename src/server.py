@@ -34,6 +34,7 @@ from utils import (
     NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT,
     CRITICAL_THRESHOLD_TO_SET_ERROR,
     NONCRITICAL_THRESHOLD_TO_SET_ERROR,
+    QDS_MISSING_QDS_VALUE,
 )
 
 
@@ -114,7 +115,7 @@ async def _process_data(request: Request):
     # Calculate input total
     qds = np.array(qds).ravel()
     qds_counts = Counter()
-    for q in qds:
+    for q, y_current in zip(qds, np.array(y).ravel()):
         # If at least one critical bit is set, count as critical
         for bit in QDS_CRITICAL_VALUES:
             if (q & bit) == bit:
@@ -126,21 +127,50 @@ async def _process_data(request: Request):
             if (q & bit) == bit:
                 qds_counts['NON_CRITICAL'] += 1
                 break
+    
+        # Count missing QDS values
+        if q == QDS_MISSING_QDS_VALUE:
+            qds_counts['MISSING_QDS'] += 1
+
+        # Count missing y values
+        if np.isnan(y_current):
+            qds_counts['MISSING_Y'] += 1
 
     critical_input_freq = qds_counts['CRITICAL'] / len(qds)
-    non_critical_input_freq = qds_counts['NON_CRITICAL'] / len(qds)
+    non_critical_input_freq = (qds_counts['NON_CRITICAL'] + qds_counts['MISSING_Y']) / len(qds)
     
     input_total_qds = QDS_BASE
-    if non_critical_input_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
-        input_total_qds = max(input_total_qds, QDS_INCORRECT_INPUT)
-        r['task_message'] = append_message(r['task_message'], f'Input data contains non-critical errors ({non_critical_input_freq*100:.1f}% above or equal to the threshold {NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT*100:.1f}%)')
-    if non_critical_input_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
-        input_total_qds = max(input_total_qds, QDS_ERROR)
-        r['task_message'] = append_message(r['task_message'], f'Input data contains critical errors ({non_critical_input_freq*100:.1f}% above or equal to the threshold {NONCRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}% of non-critical errors)')
-    if critical_input_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR:
-        input_total_qds = max(input_total_qds, QDS_ERROR)
-        r['task_message'] = append_message(r['task_message'], f'Input data contains critical errors ({critical_input_freq*100:.1f}% above or equal to the threshold {CRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%)')
 
+    if non_critical_input_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
+        r['task_message'] = append_message(
+            r['task_message'], 
+            f'Input data contains critical errors (QDS {QDS_NONCRITICAL_VALUES} bits set or missing Y values in {non_critical_input_freq*100:.1f}% '
+            f'of input points, which is above or equal '
+            f'to the acceptable threshold {NONCRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%). '
+            f'QDS elevated from {input_total_qds} to {QDS_ERROR}'
+        )
+        input_total_qds = max(input_total_qds, QDS_ERROR)
+    elif non_critical_input_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
+        r['task_message'] = append_message(
+            r['task_message'], 
+            f'Input data contains non-critical errors (QDS {QDS_NONCRITICAL_VALUES} bits set or missing Y values in {non_critical_input_freq*100:.1f}% '
+            f'of input points, which is above or equal '
+            f'to the acceptable threshold {NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT*100:.1f}%). '
+            f'QDS elevated from {input_total_qds} to {QDS_INCORRECT_INPUT}'
+        )
+        input_total_qds = max(input_total_qds, QDS_INCORRECT_INPUT)
+    
+    if critical_input_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR:
+        r['task_message'] = append_message(
+            r['task_message'], 
+            f'Input data contains critical errors (QDS {QDS_CRITICAL_VALUES} bits set in {critical_input_freq*100:.1f}% of input points, which is above or equal '
+            f'to the acceptable threshold {CRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%). '
+            f'QDS elevated from {input_total_qds} to {QDS_ERROR}'
+        )
+        input_total_qds = max(input_total_qds, QDS_ERROR)
+
+    r['task_message'] = append_message(r['task_message'], f'Input QDS counts: {qds_counts}, frequencies: CRITICAL={critical_input_freq*100:.1f}%, NON_CRITICAL={non_critical_input_freq*100:.1f}%')
+    
     # Prepare base QDS for predictions
     # TODO: get QDS from model
     # - if the inputs are too different from training data, set corresponding bits

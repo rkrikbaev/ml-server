@@ -114,6 +114,7 @@ MES_TO_REGION = {
 QDS_BASE = 0  # base QDS value
 QDS_INCORRECT_INPUT = 64  # incorrect input bit in QDS
 QDS_ERROR = 128  # error bit in QDS
+QDS_MISSING_QDS_VALUE = 256  # value for missing QDS (if qds is None)
 
 QDS_NONCRITICAL_VALUES = [1, 2, 4, 8, 16, 32, 64]
 QDS_CRITICAL_VALUES = [128]
@@ -194,15 +195,10 @@ def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray,
         raise ValueError('NaN values in timestamps')
     
     # Get QDS
-    qds = np.array([QDS_INCORRECT_INPUT if qds is None else qds for _, _, qds in values], dtype=int)
+    qds = np.array([QDS_MISSING_QDS_VALUE if qds is None else qds for _, _, qds in values], dtype=int)
 
     # Get y
     y = np.array([val for _, val, _ in values], dtype=float)
-
-    # For nan values in y, force corresponding qds to 128 (error)
-    for i in range(len(y)):
-        if np.isnan(y[i]):
-            qds[i] = QDS_INCORRECT_INPUT  # set error bit
 
     # Interpolate nan values in y
     if interpolate:
