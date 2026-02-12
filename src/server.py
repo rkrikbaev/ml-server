@@ -54,6 +54,26 @@ def check_sbre(y, timestamps):
     return not np.all(np.isnan(y[1][mask]))
 
 
+# Short status codes for state['message']
+STATUS_OK = "OK"
+STATUS_INVALID_DATA = "DATA_FORMAT_ERROR"
+STATUS_DATA_GAPS = "DATA_GAPS_WARNING"
+STATUS_MODEL_FALLBACK = "MODEL_FALLBACK"
+STATUS_EXECUTION_ERROR = "EXECUTION_ERROR"
+
+
+def choose_status(total_qds: int, invalid_format: bool, execution_error: bool, model_fallback: bool, input_issue: bool) -> str:
+    if execution_error:
+        return STATUS_EXECUTION_ERROR
+    if invalid_format:
+        return STATUS_INVALID_DATA
+    if model_fallback:
+        return STATUS_MODEL_FALLBACK
+    if input_issue or total_qds != QDS_BASE:
+        return STATUS_DATA_GAPS
+    return STATUS_OK
+
+
 def append_message(current_message: str, new_message: str) -> str:
     if current_message:
         return current_message + '. ' + new_message
@@ -115,6 +135,10 @@ async def _process_data(request: Request):
     model_path = None
     task_message = ''
     task_status = None
+    invalid_format = False
+    execution_error = False
+    model_fallback = False
+    input_issue = False
 
     r = dict()
 
@@ -125,10 +149,11 @@ async def _process_data(request: Request):
         model_path = d.get("model_path", None)
         clip_negatives_to_0 = d.get("clip_negatives_to_0", True)
         online = model_path == 'none'
-        task_message = append_message(task_message, f'Task started with ID [{task_id}]')
+        # task_message = append_message(task_message, f'Task started with ID [{task_id}]')
     except KeyError as e:
         task_status = "ОШИБКА"
-        task_message = append_message(task_message, f'Failed to parse input JSON')
+        task_message = 'Failed to parse input data'
+        # task_message = append_message(task_message, f'Failed to parse input JSON')
         logger.error(e)
         raise http.HTTPException(status_code=400, detail=task_message)
     finally:
@@ -149,9 +174,12 @@ async def _process_data(request: Request):
             qds.append(qds_)
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
-            r['task_message'] = append_message(r['task_message'], f'Invalid dataset for task with ID {task_id}')
-            # r['state'] = {'quality': QDS_ERROR}
-            r['state'] = {'quality': QDS_ERROR, 'message': r['task_message']}
+            invalid_format = True
+            r['task_message'] = 'Invalid input dataset format'
+            # r['task_message'] = append_message(r['task_message'], f'Invalid dataset for task with ID {task_id}')
+            r['state'] = {'quality': QDS_ERROR, 'message': choose_status(QDS_ERROR, invalid_format, False, False, False)}
+            # previous behaviour: return full verbose task message in state
+            # r['state'] = {'quality': QDS_ERROR, 'message': r['task_message']}
             logger.error(e)
             return r
     
@@ -164,38 +192,45 @@ async def _process_data(request: Request):
 
     if non_critical_input_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
         r['task_message'] = append_message(
-            r['task_message'], 
-            f'Input data contains critical errors (QDS {QDS_NONCRITICAL_VALUES} bits set or missing Y values in {non_critical_input_freq*100:.1f}% '
-            f'of input points, which is above or equal '
-            f'to the acceptable threshold {NONCRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%). '
-            f'QDS elevated from {input_total_qds} to {QDS_ERROR}'
+            r['task_message'],
+            f'Multiple errors or gaps in {non_critical_input_freq*100:.1f}% of input data (QDS={QDS_ERROR})'
+
+            # f'Input data contains critical errors (QDS {QDS_NONCRITICAL_VALUES} bits set or missing Y values in {non_critical_input_freq*100:.1f}% '
+            # f'of input points, which is above or equal '
+            # f'to the acceptable threshold {NONCRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%). '
+            # f'QDS elevated from {input_total_qds} to {QDS_ERROR}'
         )
         input_total_qds = max(input_total_qds, QDS_ERROR)
+        input_issue = True
     elif non_critical_input_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
         r['task_message'] = append_message(
-            r['task_message'], 
-            f'Input data contains non-critical errors (QDS {QDS_NONCRITICAL_VALUES} bits set or missing Y values in {non_critical_input_freq*100:.1f}% '
-            f'of input points, which is above or equal '
-            f'to the acceptable threshold {NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT*100:.1f}%). '
-            f'QDS elevated from {input_total_qds} to {QDS_INCORRECT_INPUT}'
+            r['task_message'],
+            f'Errors or gaps in {non_critical_input_freq*100:.1f}% of input data (QDS={QDS_INCORRECT_INPUT})'
+            # f'Input data contains non-critical errors (QDS {QDS_NONCRITICAL_VALUES} bits set or missing Y values in {non_critical_input_freq*100:.1f}% '
+            # f'of input points, which is above or equal '
+            # f'to the acceptable threshold {NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT*100:.1f}%). '
+            # f'QDS elevated from {input_total_qds} to {QDS_INCORRECT_INPUT}'
         )
         input_total_qds = max(input_total_qds, QDS_INCORRECT_INPUT)
+        input_issue = True
     
     if critical_input_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR:
         r['task_message'] = append_message(
-            r['task_message'], 
-            f'Input data contains critical errors (QDS {QDS_CRITICAL_VALUES} bits set in {critical_input_freq*100:.1f}% of input points, which is above or equal '
-            f'to the acceptable threshold {CRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%). '
-            f'QDS elevated from {input_total_qds} to {QDS_ERROR}'
+            r['task_message'],
+            f'Critical errors in {critical_input_freq*100:.1f}% of input data (QDS={QDS_ERROR})'
+            # f'Input data contains critical errors (QDS {QDS_CRITICAL_VALUES} bits set in {critical_input_freq*100:.1f}% of input points, which is above or equal '
+            # f'to the acceptable threshold {CRITICAL_THRESHOLD_TO_SET_ERROR*100:.1f}%). '
+            # f'QDS elevated from {input_total_qds} to {QDS_ERROR}'
         )
         input_total_qds = max(input_total_qds, QDS_ERROR)
+        input_issue = True
 
-    if input_total_qds != QDS_BASE:
-        r['task_message'] = append_message(
-            r['task_message'], 
-            f'Total input points: {n_qds}, '
-            f'input QDS counts: {dict(qds_counts)}.'
-        )
+    # if input_total_qds != QDS_BASE:
+    #     r['task_message'] = append_message(
+    #         r['task_message'], 
+    #         f'Total input points: {n_qds}, '
+    #         f'input QDS counts: {dict(qds_counts)}.'
+    #     )
         
     # Prepare base QDS for predictions
     # TODO: get QDS from model
@@ -209,7 +244,9 @@ async def _process_data(request: Request):
         logger.warning(f"Cannot init model from path {model_path}, using online model instead")
         online = True
         base_pred_qds = max(base_pred_qds, QDS_ERROR)
-        r['task_message'] = append_message(r['task_message'], f'Online model is used due to model initialization error at path {model_path}')
+        model_fallback = True
+        r['task_message'] = append_message(r['task_message'], f'Model loading error, using online model (QDS={QDS_ERROR})')
+        #r['task_message'] = append_message(r['task_message'], f'Online model is used due to model initialization error at path {model_path}')
         model = init_model('none', step)
 
     logger.debug(f"len(y): {len(y)}, {[len(y_) for y_ in y]}")
@@ -224,7 +261,8 @@ async def _process_data(request: Request):
         )
         base_pred_qds = max(base_pred_qds, QDS_ERROR)
         r['task_status'] = 'ОШИБКА'
-        r['task_message'] = append_message(r['task_message'], f'Model initialization error, check model files. Result equals input data mapped to the requested output interval')
+        r['task_message'] = append_message(r['task_message'], f'Critical model initialization error (QDS={QDS_ERROR}). Result = input data on requested interval')
+        #r['task_message'] = append_message(r['task_message'], f'Model initialization error, check model files. Result equals input data mapped to the requested output interval')
     else:
         try:
             preds, pred_timestamps, is_matching = predict(
@@ -237,9 +275,12 @@ async def _process_data(request: Request):
             )
         except Exception as e:
             r['task_status'] = 'ОШИБКА'
-            r['task_message'] = append_message(r['task_message'], f'Forecast call error for task with ID {task_id}')
-            # r['state'] = {'quality': QDS_ERROR}
-            r['state'] = {'quality': QDS_ERROR, 'message': r['task_message']}
+            execution_error = True
+            r['task_message'] = append_message(r['task_message'], f'Forecast execution error')
+            #r['task_message'] = append_message(r['task_message'], f'Forecast call error for task with ID {task_id}')
+            r['state'] = {'quality': QDS_ERROR, 'message': choose_status(QDS_ERROR, False, execution_error, False, False)}
+            # previous behaviour: return full verbose task message in state
+            # r['state'] = {'quality': QDS_ERROR, 'message': r['task_message']}
             base_pred_qds = QDS_ERROR
             logger.error(e)
             return r
@@ -248,7 +289,7 @@ async def _process_data(request: Request):
     # Используем max, чтобы не понижать уже установленный более высокий уровень ошибки
     if not is_matching:
         base_pred_qds = max(base_pred_qds, QDS_INCORRECT_INPUT)
-
+        r['task_message'] = append_message(r['task_message'], f'Data does not match training distribution (QDS={QDS_INCORRECT_INPUT})')
     logger.info(preds)
     
     # Calculate total QDS
@@ -274,7 +315,14 @@ async def _process_data(request: Request):
 
     r['task_status'] = 'УСПЕШНО'
     # r['state'] = {'quality': total_qds}
-    r['state'] = {'quality': total_qds, 'message': r['task_message']}
+    #вернуть ок если нет ошибок, иначе вернуть сообщение об ошибке и код ошибки
+     # If QDS is 0 and no message, return 'OK'
+    if total_qds == QDS_BASE and not r['task_message']:
+        r['task_message'] = 'OK'
+    status = choose_status(total_qds, invalid_format, execution_error, model_fallback, input_issue)
+    r['state'] = {'quality': total_qds, 'message': status}
+    # previous behaviour: expose full verbose task message in state
+    # r['state'] = {'quality': total_qds, 'message': r['task_message']}
     r['task_output']= result
 
     logger.info(f"Output: {r}")
