@@ -60,15 +60,26 @@ STATUS_INVALID_DATA = "DATA_FORMAT_ERROR"
 STATUS_DATA_GAPS = "DATA_GAPS_WARNING"
 STATUS_MODEL_FALLBACK = "MODEL_FALLBACK"
 STATUS_EXECUTION_ERROR = "EXECUTION_ERROR"
+STATUS_DISTRIBUTION_MISMATCH = "DATA_MISMATCH"
 
 
-def choose_status(total_qds: int, invalid_format: bool, execution_error: bool, model_fallback: bool, input_issue: bool) -> str:
+def choose_status(
+    total_qds: int,
+    invalid_format: bool,
+    execution_error: bool,
+    model_fallback: bool,
+    input_issue: bool,
+    is_matching: bool = True,
+) -> str:
     if execution_error:
         return STATUS_EXECUTION_ERROR
     if invalid_format:
         return STATUS_INVALID_DATA
     if model_fallback:
         return STATUS_MODEL_FALLBACK
+    # If model reports inputs do not match training distribution
+    if not is_matching:
+        return STATUS_DISTRIBUTION_MISMATCH
     if input_issue or total_qds != QDS_BASE:
         return STATUS_DATA_GAPS
     return STATUS_OK
@@ -319,7 +330,7 @@ async def _process_data(request: Request):
      # If QDS is 0 and no message, return 'OK'
     if total_qds == QDS_BASE and not r['task_message']:
         r['task_message'] = 'OK'
-    status = choose_status(total_qds, invalid_format, execution_error, model_fallback, input_issue)
+    status = choose_status(total_qds, invalid_format, execution_error, model_fallback, input_issue, is_matching)
     r['state'] = {'quality': total_qds, 'message': status}
     # previous behaviour: expose full verbose task message in state
     # r['state'] = {'quality': total_qds, 'message': r['task_message']}
