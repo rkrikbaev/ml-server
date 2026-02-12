@@ -22,7 +22,7 @@ import numpy as np
 from collections import Counter
 from fastapi import FastAPI, Request
 
-from inference import predict, predict_default, get_full_days_mask
+from inference import predict, predict_default, get_full_days_mask, get_last_past_index
 from utils import (
     extract_data, 
     init_model, 
@@ -59,6 +59,49 @@ def append_message(current_message: str, new_message: str) -> str:
         return current_message + '. ' + new_message
     else:
         return new_message
+
+
+def count_errors(qds, y, timestamps):
+    # Take into account only past values
+    last_past_index = get_last_past_index(timestamps[0])
+
+    qds = np.array(qds)[:, :last_past_index].ravel()
+    y = np.array(y)[:, :last_past_index].ravel()
+    
+    qds_counts = Counter()
+
+    qds_counts['CRITICAL'] = 0
+    qds_counts['NON_CRITICAL'] = 0
+    qds_counts['MISSING_QDS'] = 0
+    qds_counts['MISSING_Y'] = 0
+    qds_counts['NON_CRITICAL_OR_MISSING_Y'] = 0
+
+    for q, y_current in zip(qds, y):
+        # If at least one critical bit is set, count as critical
+        for bit in QDS_CRITICAL_VALUES:
+            if (q & bit) == bit:
+                qds_counts['CRITICAL'] += 1
+                break
+
+        # If at least one non-critical bit is set, count as non-critical
+        for bit in QDS_NONCRITICAL_VALUES:
+            if (q & bit) == bit:
+                qds_counts['NON_CRITICAL'] += 1
+                break
+    
+        # Count missing QDS values
+        if q == QDS_MISSING_QDS_VALUE:
+            qds_counts['MISSING_QDS'] += 1
+
+        # Count missing y values
+        if np.isnan(y_current):
+            qds_counts['MISSING_Y'] += 1
+        
+        # Count non-critical or missing y values
+        if any((q & bit) == bit for bit in QDS_NONCRITICAL_VALUES) or np.isnan(y_current):
+            qds_counts['NON_CRITICAL_OR_MISSING_Y'] += 1
+
+    return qds_counts, qds.shape[0]
 
 
 async def _process_data(request: Request):
@@ -112,32 +155,10 @@ async def _process_data(request: Request):
             logger.error(e)
             return r
     
-    # Calculate input total
-    qds = np.array(qds).ravel()
-    qds_counts = Counter()
-    for q, y_current in zip(qds, np.array(y).ravel()):
-        # If at least one critical bit is set, count as critical
-        for bit in QDS_CRITICAL_VALUES:
-            if (q & bit) == bit:
-                qds_counts['CRITICAL'] += 1
-                break
-
-        # If at least one non-critical bit is set, count as non-critical
-        for bit in QDS_NONCRITICAL_VALUES:
-            if (q & bit) == bit:
-                qds_counts['NON_CRITICAL'] += 1
-                break
-    
-        # Count missing QDS values
-        if q == QDS_MISSING_QDS_VALUE:
-            qds_counts['MISSING_QDS'] += 1
-
-        # Count missing y values
-        if np.isnan(y_current):
-            qds_counts['MISSING_Y'] += 1
-
-    critical_input_freq = qds_counts['CRITICAL'] / len(qds)
-    non_critical_input_freq = (qds_counts['NON_CRITICAL'] + qds_counts['MISSING_Y']) / len(qds)
+    # Count QDS errors and set input quality level
+    qds_counts, n_qds = count_errors(qds, y, timestamps)
+    critical_input_freq = qds_counts['CRITICAL'] / n_qds
+    non_critical_input_freq = qds_counts['NON_CRITICAL_OR_MISSING_Y'] / n_qds
     
     input_total_qds = QDS_BASE
 
@@ -169,8 +190,13 @@ async def _process_data(request: Request):
         )
         input_total_qds = max(input_total_qds, QDS_ERROR)
 
-    r['task_message'] = append_message(r['task_message'], f'Input QDS counts: {qds_counts}, frequencies: CRITICAL={critical_input_freq*100:.1f}%, NON_CRITICAL={non_critical_input_freq*100:.1f}%')
-    
+    if input_total_qds != QDS_BASE:
+        r['task_message'] = append_message(
+            r['task_message'], 
+            f'Total input points: {n_qds}, '
+            f'input QDS counts: {dict(qds_counts)}.'
+        )
+        
     # Prepare base QDS for predictions
     # TODO: get QDS from model
     # - if the inputs are too different from training data, set corresponding bits
