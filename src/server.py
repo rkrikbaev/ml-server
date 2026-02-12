@@ -80,20 +80,34 @@ def count_input_qds(qds, y, timestamps):
     total = len(qds)
     critical = 0
     non_critical_or_missing = 0
+    # Count NaN and gaps separateely
+    # gaps = 0 
+    # low_quality = 0
 
     for q, yv in zip(qds, y):
         if any((q & bit) == bit for bit in QDS_CRITICAL_VALUES):
             critical += 1
         if any((q & bit) == bit for bit in QDS_NONCRITICAL_VALUES) or np.isnan(yv):
             non_critical_or_missing += 1
+        # Count NaN and gaps separateely
+        # if np.isnan(yv):
+        #     gaps += 1
+        # elif any((q & bit) == bit for bit in QDS_NONCRITICAL_VALUES):
+        #     low_quality += 1
 
     return (
         critical / total if total else 0.0,
         non_critical_or_missing / total if total else 0.0,
+        # Count NaN and gaps separateely
+        # gaps / total if total else 0.0,
+        # low_quality / total if total else 0.0,
     )
 
 
 def evaluate_input_quality(critical_freq, non_critical_freq):
+    # Count NaN and gaps separateely
+    # non_critical_freq = gaps_freq + low_quality_freq
+
     if critical_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR:
         return (
             QDS_ERROR,
@@ -107,6 +121,14 @@ def evaluate_input_quality(critical_freq, non_critical_freq):
             STATUS_DATA_GAPS,
             f"Multiple errors or gaps in {non_critical_freq*100:.1f}% of input data (QDS={QDS_ERROR})",
         )
+    
+    # Count NaN and gaps separateely
+    # if gaps_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
+    #         msg = f"Missing data (NaN) in {gaps_freq*100:.1f}% of input data (QDS={QDS_ERROR})"
+    #     else:
+    #         msg = f"Gaps ({gaps_freq*100:.1f}%) and low quality ({low_quality_freq*100:.1f}%) in data (QDS={QDS_ERROR})"
+        
+    #     return (QDS_ERROR, STATUS_DATA_GAPS, msg)
 
     if non_critical_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
         return (
@@ -168,6 +190,13 @@ async def _process_data(request: Request):
     input_qds, input_status, input_reason = evaluate_input_quality(
         critical_freq, non_critical_freq
     )
+
+    # Count NaN and gaps separateely
+    # critical_freq, gaps_freq, low_quality_freq = count_input_qds(qds, y, timestamps)
+    
+    # input_qds, input_status, input_reason = evaluate_input_quality(
+    #     critical_freq, gaps_freq, low_quality_freq
+    # )
 
     # -------- model init
     base_pred_qds = QDS_BASE
