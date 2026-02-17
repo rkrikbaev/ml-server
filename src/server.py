@@ -257,7 +257,7 @@ async def _process_data(request: Request):
         msg = ""
     else:
         msg = f"{status}: {reason}" if reason else status
-    response["state"] = {"quality": final_qds, "message": msg}
+    response["state"] = {"quality": final_qds, "message": msg, "model_confidence": 1.0}
 
     return response
 
