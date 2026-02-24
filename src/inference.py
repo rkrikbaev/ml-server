@@ -6,6 +6,7 @@ from typing import List
 
 from fpforecast.models.ar import ModelWithMetaInfoAr
 from fpforecast.models.prophet import ModelWithMetaInfoProphet
+from fpforecast.features import merge_rz_structure
 from utils import SbreModel
 
 
@@ -153,6 +154,7 @@ def predict(
     step: int,
     output_range: int,
     online: bool,
+    df_rz_melt: pd.DataFrame | None = None,
 ):
     # По умолчанию считаем, что данные соответствуют распределению
     is_matching = True  
@@ -173,10 +175,11 @@ def predict(
             index=pd.to_datetime(timestamps[0][last_past_index-W_past:last_past_index+output_range], unit='ms')
         )
 
-        for feature_info in model.features_info:
-            if feature_info.name in df.columns:
-                continue
-            df[feature_info.name] = np.nan
+        # Merge with rz data if available
+        if df_rz_melt is not None:
+            df = df.rename_axis('dt') # rename index to dt for merging
+            df = merge_rz_structure(df_rz_melt=df_rz_melt, df=df)
+            df = df.copy()
 
         # Вызов модели: ожидаем (y, y_pred, is_matching)
         _, y_pred, is_matching = model.predict(df)

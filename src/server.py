@@ -20,15 +20,17 @@ logger = logging.getLogger(__file__)
 # Imports
 # =======================
 import http
+import requests
 import asyncio
 import uvicorn
 import numpy as np
 from collections import Counter
 from fastapi import FastAPI, Request
 
-from inference import predict, predict_default, get_last_past_index
+from inference import predict, predict_default, get_last_past_index, get_pred_timestamps
 from utils import (
     extract_data,
+    convert_rz_format,
     init_model,
     QDS_BASE,
     QDS_INCORRECT_INPUT,
@@ -40,6 +42,7 @@ from utils import (
     NONCRITICAL_THRESHOLD_TO_SET_ERROR,
     QDS_MISSING_QDS_VALUE,
 )
+from fpforecast.models.ar import ModelWithMetaInfoAr
 
 # =======================
 # FastAPI
@@ -140,6 +143,26 @@ def evaluate_input_quality(critical_freq, non_critical_freq):
     return QDS_BASE, None, None
 
 
+RZ_API_URL = os.environ.get('RZ_API_URL', None)
+
+
+def require_rz_data(model):
+    if not isinstance(model, ModelWithMetaInfoAr):
+        return False
+
+    if model.features_info is None:
+        return False
+    
+    if any(
+        feature_info.name.startswith('is_repair_') or
+        feature_info.name.startswith('repair_power_drop_')
+        for feature_info in model.features_info
+    ):
+        return True
+
+    return False
+
+
 # =======================
 # Core logic
 # =======================
@@ -211,6 +234,29 @@ async def _process_data(request: Request):
         status = STATUS_MODEL_FALLBACK
         reason = "Model loading error, using online model (QDS=128)"
 
+    # -------- rz data
+    df_rz_melt = None
+    if RZ_API_URL is not None and require_rz_data(model):
+        try:
+            _, pred_timestamps = get_pred_timestamps(timestamps[0], step, period)
+            start_data = int(pred_timestamps[0])
+            end_data = int(pred_timestamps[-1])
+            mes = model_path.split('/')[3] if model_path else None
+            rz_request_payload = {
+                "mes": mes,
+                "start_data": start_data,
+                "end_data": end_data
+            }
+            response_rz = requests.post(
+                RZ_API_URL,
+                headers={'Content-Type': 'application/json'},
+                json=rz_request_payload
+            )
+            logger.debug(f"RZ API response status: {response_rz.status_code}")
+            df_rz_melt = convert_rz_format(response_rz.json())
+        except Exception as e:
+            logger.error(e)
+
     # -------- prediction
     try:
         preds, pred_ts, is_matching = predict(
@@ -220,6 +266,7 @@ async def _process_data(request: Request):
             step=step,
             output_range=period,
             online=online,
+            df_rz_melt=df_rz_melt,
         )
     except Exception as e:
         logger.error(e)

@@ -31,6 +31,7 @@ docker run \
     --name "$fullname" \
     -e MAX_CONCURRENT_REQUESTS=8 \
     -e LOGLEVEL=WARNING \
+    -e RZ_API_URL='http://10.210.2.107:8080/get/forecast/applications' \
     -p $port:8000 \
     -v "/$root/local/$model:/workspace/models" \
     -v "/$root/src:/workspace/server" \
