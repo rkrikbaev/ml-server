@@ -154,6 +154,7 @@ async def _process_data(request: Request):
         "state": {
             "quality": QDS_ERROR,
             "message": STATUS_EXECUTION_ERROR,
+            "model_confidence": 0.0,
         },
     }
 
