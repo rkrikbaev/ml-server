@@ -177,6 +177,7 @@ async def _process_data(request: Request):
         "state": {
             "quality": QDS_ERROR,
             "message": STATUS_EXECUTION_ERROR,
+            "model_confidence": 0.0,
         },
     }
 
@@ -193,6 +194,7 @@ async def _process_data(request: Request):
     except Exception as e:
         logger.error(e)
         response["state"]["message"] = f"{STATUS_DATA_FORMAT_ERROR}: Invalid input JSON"
+        logger.debug(f'{response=}')
         return response
 
     # -------- extract input data
@@ -206,6 +208,7 @@ async def _process_data(request: Request):
     except Exception as e:
         logger.error(e)
         response["state"]["message"] = f"{STATUS_DATA_FORMAT_ERROR}: Invalid input dataset format"
+        logger.debug(f'{response=}')
         return response
 
     # -------- input QDS evaluation
@@ -271,6 +274,7 @@ async def _process_data(request: Request):
     except Exception as e:
         logger.error(e)
         response["state"]["message"] = f"{STATUS_EXECUTION_ERROR}: Forecast execution error"
+        logger.debug(f'{response=}')
         return response
 
     # -------- distribution mismatch
@@ -305,6 +309,7 @@ async def _process_data(request: Request):
     else:
         msg = f"{status}: {reason}" if reason else status
     response["state"] = {"quality": final_qds, "message": msg, "model_confidence": 1.0}
+    logger.debug(f'{response=}')
 
     return response
 
