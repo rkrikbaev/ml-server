@@ -190,6 +190,7 @@ async def _process_data(request: Request):
         model_path = payload.get("model_path")
         clip_negatives_to_0 = payload.get("clip_negatives_to_0", True)
         online = model_path == "none"
+        use_dynamic_normalization = payload.get("use_dynamic_normalization", False)
         response["task_id"] = task_id
     except Exception as e:
         logger.error(e)
@@ -236,6 +237,10 @@ async def _process_data(request: Request):
         base_pred_qds = QDS_ERROR
         status = STATUS_MODEL_FALLBACK
         reason = "Model loading error, using online model (QDS=128)"
+
+    # Set dynamic normalization if requested and supported
+    if use_dynamic_normalization and isinstance(model, ModelWithMetaInfoAr):
+        model.use_dynamic_normalization = True
 
     # -------- rz data
     df_rz_melt = None
