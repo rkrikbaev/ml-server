@@ -15,14 +15,14 @@ from .rz import get_rz_data
 from .evaluation import count_input_qds, evaluate_input_quality
 from .result import get_api_predict
 
-from api.config import REDIS_URL
+from api.config import REDIS_URL, REDIS_TIMEOUT
 
 from os import getenv
 # from dotenv import load_dotenv
 
 # load_dotenv()
 
-result_backend = RedisAsyncResultBackend(REDIS_URL, result_ex_time=60)
+result_backend = RedisAsyncResultBackend(REDIS_URL, result_ex_time=REDIS_TIMEOUT)
 broker = RedisStreamBroker(REDIS_URL).with_result_backend(result_backend)
 
 
