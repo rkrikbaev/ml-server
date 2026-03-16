@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import List, Dict, Tuple
 from fpforecast.models.ar import ModelWithMetaInfoAr
 from fpforecast.models.prophet import ModelWithMetaInfoProphet
+from fpforecast.features import melt_rz_data
+from fpforecast.constants import KOD_OBLASTI_TO_PATH
 
 
 logger = logging.getLogger(__file__)
@@ -114,6 +116,7 @@ MES_TO_REGION = {
 QDS_BASE = 0  # base QDS value
 QDS_INCORRECT_INPUT = 64  # incorrect input bit in QDS
 QDS_ERROR = 128  # error bit in QDS
+QDS_MISSING_QDS_VALUE = 256  # value for missing QDS (if qds is None)
 
 QDS_NONCRITICAL_VALUES = [1, 2, 4, 8, 16, 32, 64]
 QDS_CRITICAL_VALUES = [128]
@@ -178,11 +181,11 @@ def timestamps_to_calendar_features(timestamps: List[int] | np.ndarray, n_predic
 
 
 def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray, np.ndarray]:
-    if len(values) > 0:
-        logger.debug(f'dataset values: {values}')
-    else:
+    if len(values) == 0:
         logger.debug('Zero len of dataset')
         raise ValueError('Zero len of dataset')
+    else:
+        pass
 
     # Get timestamps
     timestamps = np.array([ts for ts, _, _ in values], dtype=int)
@@ -194,15 +197,10 @@ def extract_data(values: list, interpolate: bool) -> Tuple[str, str, np.ndarray,
         raise ValueError('NaN values in timestamps')
     
     # Get QDS
-    qds = np.array([QDS_INCORRECT_INPUT if qds is None else qds for _, _, qds in values], dtype=int)
+    qds = np.array([QDS_MISSING_QDS_VALUE if qds is None else qds for _, _, qds in values], dtype=int)
 
     # Get y
     y = np.array([val for _, val, _ in values], dtype=float)
-
-    # For nan values in y, force corresponding qds to 128 (error)
-    for i in range(len(y)):
-        if np.isnan(y[i]):
-            qds[i] = QDS_INCORRECT_INPUT  # set error bit
 
     # Interpolate nan values in y
     if interpolate:
@@ -309,3 +307,49 @@ def interpolate_nan_1d(y):
     nans, x = nan_helper(y)
     y[nans] = np.interp(x(nans), x(~nans), y[~nans])
     return y
+
+
+def convert_rz_format(data):
+    data_flat = []
+    for item in data:
+        for id_, values_outer in item.items():
+            for i, values in enumerate(values_outer):
+                data_flat.append(values | {'id': id_, 'index': i})
+
+    df = pd.DataFrame(data_flat)
+
+    df['data_N'] = df['start_actual'].fillna(df['start_approved']).fillna(df['start_requested'])
+    df['data_K'] = df['end_actual'].fillna(df['end_approved']).fillna(df['end_requested'])
+    df['cod_en_obj'] = df['id'].str[:4]
+    df['cod_en_obj_vidobor'] = df['id'].str[:6]
+    df['occurence'] = 1
+    df['area_code'] = df['area_code']
+    df['region_path'] = df['area_code'].fillna(-1).astype(int).map(KOD_OBLASTI_TO_PATH)
+    df['mes'] = df['region_path'].str.split('/').str[1]
+
+    # Convert from timestamp in ms to datetime
+    df['date_post'] = pd.to_datetime(df['date_post'], unit='ms')
+    df['data_N'] = pd.to_datetime(df['data_N'], unit='ms')
+    df['data_K'] = pd.to_datetime(df['data_K'], unit='ms')
+
+    df = df.rename(columns={
+        'date_post': 'data_post',
+        'id': 'shifrIMJ',
+        'object_type_code': 'Kod_TypObj',
+        'p_descent': 'p_sni',
+    })
+    cols_to_check = ['data_post', 'shifrIMJ', 'cod_en_obj', 'cod_en_obj_vidobor', 'mes',
+        'region_path', 'Kod_TypObj', 'occurence', 'p_sni', 'data_N', 'data_K']
+    assert all(col in df.columns for col in cols_to_check), set(cols_to_check) - set(df.columns)
+
+    df = df[cols_to_check]
+    df = df.dropna(subset=cols_to_check)
+    df['shifrIMJ'] = df['shifrIMJ'].astype(str)
+    df['cod_en_obj'] = df['cod_en_obj'].astype(str)
+    df['cod_en_obj_vidobor'] = df['cod_en_obj_vidobor'].astype(str)
+    df['mes'] = df['mes'].astype(str)
+    df['region_path'] = df['region_path'].astype(str)
+
+    df_melt = melt_rz_data(df)
+
+    return df_melt
