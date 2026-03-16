@@ -1,33 +1,9 @@
 # Add lib/oik-new to path
 # TODO: remove after fpforecast package is ready
-import sys
-import os
-sys.path.insert(0, str(os.path.join(os.path.dirname(__file__), '..', 'lib', 'oik-new')))
 
-# =======================
-# Logging
-# =======================
-import logging
-
-logging.basicConfig(
-    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    level=os.environ.get('LOGLEVEL', 'INFO'),
-)
-logger = logging.getLogger(__file__)
-
-# =======================
-# Imports
-# =======================
-import http
-import requests
-import asyncio
-import uvicorn
-import numpy as np
-from collections import Counter
 from fastapi import FastAPI, Request
 
-from inference import predict, predict_default, get_last_past_index, get_pred_timestamps
+from inference import predict, get_last_past_index, get_pred_timestamps
 from utils import (
     extract_data,
     convert_rz_format,
@@ -40,9 +16,30 @@ from utils import (
     NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT,
     CRITICAL_THRESHOLD_TO_SET_ERROR,
     NONCRITICAL_THRESHOLD_TO_SET_ERROR,
-    QDS_MISSING_QDS_VALUE,
 )
+
+import requests
+import asyncio
+import uvicorn
+import numpy as np
+import sys
+import os
+
+sys.path.insert(0, str(os.path.join(os.path.dirname(__file__), '..', 'lib', 'oik-new')))
+
 from fpforecast.models.ar import ModelWithMetaInfoAr
+
+# =======================
+# Logging
+# =======================
+import logging
+
+logging.basicConfig(
+    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    level=os.environ.get('LOGLEVEL', 'INFO'),
+)
+logger = logging.getLogger(__file__)
 
 # =======================
 # FastAPI
@@ -71,6 +68,7 @@ STATUS_MODEL_FALLBACK = "MODEL_FALLBACK"
 STATUS_DATA_MISMATCH = "DATA_MISMATCH"
 STATUS_DATA_GAPS = "DATA_GAPS_WARNING"
 
+
 # =======================
 # QDS evaluation
 # =======================
@@ -84,7 +82,7 @@ def count_input_qds(qds, y, timestamps):
     critical = 0
     non_critical_or_missing = 0
     # Count NaN and gaps separateely
-    # gaps = 0 
+    # gaps = 0
     # low_quality = 0
 
     for q, yv in zip(qds, y):
@@ -115,29 +113,29 @@ def evaluate_input_quality(critical_freq, non_critical_freq):
         return (
             QDS_ERROR,
             STATUS_DATA_GAPS,
-            f"Critical errors in {critical_freq*100:.1f}% of input data (QDS={QDS_ERROR})",
+            f"Critical errors in {critical_freq * 100:.1f}% of input data (QDS={QDS_ERROR})",
         )
 
     if non_critical_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
         return (
             QDS_ERROR,
             STATUS_DATA_GAPS,
-            f"Multiple errors or gaps in {non_critical_freq*100:.1f}% of input data (QDS={QDS_ERROR})",
+            f"Multiple errors or gaps in {non_critical_freq * 100:.1f}% of input data (QDS={QDS_ERROR})",
         )
-    
+
     # Count NaN and gaps separateely
     # if gaps_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
     #         msg = f"Missing data (NaN) in {gaps_freq*100:.1f}% of input data (QDS={QDS_ERROR})"
     #     else:
     #         msg = f"Gaps ({gaps_freq*100:.1f}%) and low quality ({low_quality_freq*100:.1f}%) in data (QDS={QDS_ERROR})"
-        
+
     #     return (QDS_ERROR, STATUS_DATA_GAPS, msg)
 
     if non_critical_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
         return (
             QDS_INCORRECT_INPUT,
             STATUS_DATA_GAPS,
-            f"Errors or gaps in {non_critical_freq*100:.1f}% of input data (QDS={QDS_INCORRECT_INPUT})",
+            f"Errors or gaps in {non_critical_freq * 100:.1f}% of input data (QDS={QDS_INCORRECT_INPUT})",
         )
 
     return QDS_BASE, None, None
@@ -152,7 +150,7 @@ def require_rz_data(model):
 
     if model.features_info is None:
         return False
-    
+
     if any(
         feature_info.name.startswith('is_repair_') or
         feature_info.name.startswith('repair_power_drop_')
@@ -220,7 +218,7 @@ async def _process_data(request: Request):
 
     # Count NaN and gaps separateely
     # critical_freq, gaps_freq, low_quality_freq = count_input_qds(qds, y, timestamps)
-    
+
     # input_qds, input_status, input_reason = evaluate_input_quality(
     #     critical_freq, gaps_freq, low_quality_freq
     # )

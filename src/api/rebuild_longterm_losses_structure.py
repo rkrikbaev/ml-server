@@ -94,17 +94,16 @@ def map_old_path_to_new_path(old_path: Path):
             if vc_key in old_path_str:
                 vc = vc_value
                 break
-        
+
         for type_key, type_value in TYPE_MAP.items():
             if type_key in old_path_str:
                 loss_type = type_value
                 break
-    
+
     assert mes is not None, f"Unknown MES in path: {old_path_str}"
     assert vc is not None, f"Unknown VC in path: {old_path_str}"
     assert loss_type is not None, f"Unknown loss type in path: {old_path_str}"
 
-    
     new_path = Path(
         'prophet',
         'elect',
@@ -125,7 +124,7 @@ def main(args):
     for filepath in filepaths:
         old_rel_dirpath = filepath.relative_to(args.input_dir).parent
         new_dirpath = args.output_dir / map_old_path_to_new_path(old_rel_dirpath)
-        
+
         new_dirpath.mkdir(parents=True, exist_ok=True)
         new_filepath = new_dirpath / 'model.json'
 
