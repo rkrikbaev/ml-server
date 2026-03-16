@@ -114,7 +114,9 @@ def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int):
     # Convert to Astana timezone
     ts_zoned = timestamps_to_timezoned_timestamps(ts, GMT_TO_ASTANA_HOURS)
 
-    last_past_index = get_last_past_index(ts_zoned)
+    # Split point: assume input is past + future window, so past length = len(ts) - output_range
+    # This avoids incorrect mid-split when W_past != W_future.
+    last_past_index = len(ts_zoned) - output_range
     pred_start_dt = pd.to_datetime(ts_zoned[last_past_index], unit='ms')
     if step == 2592000000:
         # Round to the current month start, then add one month
@@ -165,6 +167,11 @@ def predict(
         W_future = model.W_future
         assert output_range == W_future, \
             f'Output range {output_range} != W_future {W_future} of the AR model'
+        if len(timestamps[0]) < W_past + W_future:
+            raise ValueError(
+                f'Недостаточно данных для окна AR модели. Ожидалось {W_past}, '
+                f'получено {max(0, len(timestamps[0]) - W_future)}'
+            )
 
         df = pd.DataFrame(
             {

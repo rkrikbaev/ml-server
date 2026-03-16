@@ -3,6 +3,7 @@
 import sys
 import os
 sys.path.insert(0, str(os.path.join(os.path.dirname(__file__), '..', 'lib', 'oik-new')))
+sys.path.insert(0, str(os.path.join(os.path.dirname(__file__), '..', 'lib')))
 
 # Config logging
 import logging
@@ -65,7 +66,13 @@ async def _process_data(request: Request):
     task_message = ''
     task_status = None
 
-    r = dict()
+    r = {
+        'task_id': task_id,
+        'task_status': task_status,
+        'task_message': task_message,
+        'task_output': [],
+        'state': {'quality': QDS_ERROR},
+    }
 
     try:
         step = d["step"]  # in seconds
@@ -80,14 +87,15 @@ async def _process_data(request: Request):
         task_message = f'Ошибка парсинга входящего JSON'
         logger.error(e)
         raise http.HTTPException(status_code=400, detail=task_message)
-    finally:
-        r = {
-            'task_id': task_id,
-            'task_status': task_status,
-            'task_message': task_message,
-            'task_output': [],
-            'state': {'quality': QDS_ERROR},
-        }
+    r['task_id'] = task_id
+    r['task_status'] = task_status
+    r['task_message'] = task_message
+
+    if not d.get('task_input'):
+        r['task_status'] = 'ОШИБКА'
+        r['task_message'] = f'У задачи с идентификатором {task_id} отсутствуют входные данные'
+        r['state'] = {'quality': QDS_ERROR}
+        return r
 
     y, timestamps, qds = [], [], []
     for i in range(len(d['task_input'])):
