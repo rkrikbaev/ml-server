@@ -1,0 +1,65 @@
+services:
+  ml_model:
+    image: fpcloud/ml:1.0.0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    container_name: models_${MODEL:-models}
+    # restart: unless-stopped
+    env_file:
+      - ../.env
+    command: >
+      bash -c "
+        taskiq worker api.broker:broker --workers 8 &
+        python3.13 -u -m uvicorn api.new:app --host 0.0.0.0 --port 8000 &
+        wait -n
+        #
+        # python3.13 -m pip install -e /workspace/lib/oik-new &&
+        # taskiq worker api.broker:broker --workers 2 &
+        # python3.13 -m uvicorn api.server:app --host 0.0.0.0 --port 8000 &
+      "
+    ports:
+      - "${PORT:-18888}:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - RZ_API_URL=${RZ_API_URL:-http://192.168.50.141:8080/get/forecast/applications}
+      # - RZ_API_URL=${RZ_API_URL:-http://10.210.2.107:8080/get/forecast/applications}
+    volumes:
+      - "../local/${MODEL:-models}:/workspace/models"
+      - "../src:/workspace/server"
+      - "../lib:/workspace/lib"
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 1024M
+    tty: true
+    stdin_open: true
+    networks:
+      - ml
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ml
+
+networks:
+  ml:
+    driver: bridge
+
+volumes:
+  redis_data:
