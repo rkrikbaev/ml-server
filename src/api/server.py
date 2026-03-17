@@ -1,327 +1,67 @@
-# Add lib/oik-new to path
-# TODO: remove after fpforecast package is ready
+# Mariya Polkovnikova
+# 2026.03.10, 04:18 PM
+
+
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError, HTTPException
 
-from inference import predict, get_last_past_index, get_pred_timestamps
-from utils import (
-    extract_data,
-    convert_rz_format,
-    init_model,
-    QDS_BASE,
-    QDS_INCORRECT_INPUT,
-    QDS_ERROR,
-    QDS_CRITICAL_VALUES,
-    QDS_NONCRITICAL_VALUES,
-    NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT,
-    CRITICAL_THRESHOLD_TO_SET_ERROR,
-    NONCRITICAL_THRESHOLD_TO_SET_ERROR,
-)
-
-import requests
-import asyncio
-import uvicorn
-import numpy as np
-import sys
-import os
-
-sys.path.insert(0, str(os.path.join(os.path.dirname(__file__), '..', 'lib', 'oik-new')))
-
-from fpforecast.models.ar import ModelWithMetaInfoAr
-
-# =======================
-# Logging
-# =======================
-import logging
-
-logging.basicConfig(
-    format='%(asctime)s,%(msecs)d %(name)s %(levelname)s %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    level=os.environ.get('LOGLEVEL', 'INFO'),
-)
-logger = logging.getLogger(__file__)
-
-# =======================
-# FastAPI
-# =======================
-app = FastAPI()
-
-# =======================
-# Concurrency limit
-# =======================
-# Set maximum number of concurrent requests
-try:
-    MAX_CONCURRENT_REQUESTS = int(os.environ.get('MAX_CONCURRENT_REQUESTS', '8'))
-except ValueError:
-    MAX_CONCURRENT_REQUESTS = 8
-    logger.warning(f"Invalid value for MAX_CONCURRENT_REQUESTS, using default: {MAX_CONCURRENT_REQUESTS}")
-semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+from api.utils import get_fields
+from .broker import broker, api_predict
+from .data import PredictCreateSchema, PredictUpdateSchema
+from .message import HTTPMessages
 
 
-# =======================
-# Status codes
-# =======================
-STATUS_OK = "OK"
-STATUS_DATA_FORMAT_ERROR = "DATA_FORMAT_ERROR"
-STATUS_EXECUTION_ERROR = "EXECUTION_ERROR"
-STATUS_MODEL_FALLBACK = "MODEL_FALLBACK"
-STATUS_DATA_MISMATCH = "DATA_MISMATCH"
-STATUS_DATA_GAPS = "DATA_GAPS_WARNING"
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await broker.startup()
+    yield
+    await broker.shutdown()
+
+app = FastAPI(lifespan=lifespan)
+messages = HTTPMessages()
 
 
-# =======================
-# QDS evaluation
-# =======================
-def count_input_qds(qds, y, timestamps):
-    last_past_index = get_last_past_index(timestamps[0])
+# --- ERRORS ---
 
-    qds = np.array(qds)[:, :last_past_index].ravel()
-    y = np.array(y)[:, :last_past_index].ravel()
-
-    total = len(qds)
-    critical = 0
-    non_critical_or_missing = 0
-    # Count NaN and gaps separateely
-    # gaps = 0
-    # low_quality = 0
-
-    for q, yv in zip(qds, y):
-        if any((q & bit) == bit for bit in QDS_CRITICAL_VALUES):
-            critical += 1
-        if any((q & bit) == bit for bit in QDS_NONCRITICAL_VALUES) or np.isnan(yv):
-            non_critical_or_missing += 1
-        # Count NaN and gaps separateely
-        # if np.isnan(yv):
-        #     gaps += 1
-        # elif any((q & bit) == bit for bit in QDS_NONCRITICAL_VALUES):
-        #     low_quality += 1
-
-    return (
-        critical / total if total else 0.0,
-        non_critical_or_missing / total if total else 0.0,
-        # Count NaN and gaps separateely
-        # gaps / total if total else 0.0,
-        # low_quality / total if total else 0.0,
-    )
+# 404
+@app.exception_handler(404)
+def not_found_exception_handler(_request: Request, _exc: HTTPException):
+    return messages.not_found()
 
 
-def evaluate_input_quality(critical_freq, non_critical_freq):
-    # Count NaN and gaps separateely
-    # non_critical_freq = gaps_freq + low_quality_freq
+# 422
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+    e = []
+    fields = get_fields()
 
-    if critical_freq >= CRITICAL_THRESHOLD_TO_SET_ERROR:
-        return (
-            QDS_ERROR,
-            STATUS_DATA_GAPS,
-            f"Critical errors in {critical_freq * 100:.1f}% of input data (QDS={QDS_ERROR})",
-        )
+    for item in exc.errors():
+        filtered = [i for i in item["loc"] if i in fields]
+        for i in filtered:
+            e.append(f"'{i}' : {item["msg"]}")
 
-    if non_critical_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
-        return (
-            QDS_ERROR,
-            STATUS_DATA_GAPS,
-            f"Multiple errors or gaps in {non_critical_freq * 100:.1f}% of input data (QDS={QDS_ERROR})",
-        )
-
-    # Count NaN and gaps separateely
-    # if gaps_freq >= NONCRITICAL_THRESHOLD_TO_SET_ERROR:
-    #         msg = f"Missing data (NaN) in {gaps_freq*100:.1f}% of input data (QDS={QDS_ERROR})"
-    #     else:
-    #         msg = f"Gaps ({gaps_freq*100:.1f}%) and low quality ({low_quality_freq*100:.1f}%) in data (QDS={QDS_ERROR})"
-
-    #     return (QDS_ERROR, STATUS_DATA_GAPS, msg)
-
-    if non_critical_freq >= NON_CRITICAL_THRESHOLD_TO_SET_INCORRECT:
-        return (
-            QDS_INCORRECT_INPUT,
-            STATUS_DATA_GAPS,
-            f"Errors or gaps in {non_critical_freq * 100:.1f}% of input data (QDS={QDS_INCORRECT_INPUT})",
-        )
-
-    return QDS_BASE, None, None
+    return messages.unprocessable_entity(e)
 
 
-RZ_API_URL = os.environ.get('RZ_API_URL', None)
+# --- API ---
 
+@app.post("/predict")
+async def process_data(data: PredictCreateSchema | PredictUpdateSchema):
+    # 1st run
+    if isinstance(data, PredictCreateSchema):
+        task = await api_predict.kiq(data)
+        return messages.accepted_start(task.task_id)  # 202: START
 
-def require_rz_data(model):
-    if not isinstance(model, ModelWithMetaInfoAr):
-        return False
+    # 2nd run
+    task_id = data.task_id
 
-    if model.features_info is None:
-        return False
+    is_ready = await broker.result_backend.is_result_ready(task_id)
+    if not is_ready:  # 202: PROCESSING
+        return messages.accepted_processing(task_id)
 
-    if any(
-        feature_info.name.startswith('is_repair_') or
-        feature_info.name.startswith('repair_power_drop_')
-        for feature_info in model.features_info
-    ):
-        return True
-
-    return False
-
-
-# =======================
-# Core logic
-# =======================
-async def _process_data(request: Request):
-    logger.info("Request received")
-
-    # -------- default response skeleton
-    response = {
-        "task_id": None,
-        "task_status": "ОШИБКА",
-        "task_output": [],
-        "state": {
-            "quality": QDS_ERROR,
-            "message": STATUS_EXECUTION_ERROR,
-            "model_confidence": 0.0,
-        },
-    }
-
-    # -------- parse request
-    try:
-        [payload] = await request.json()
-        step = payload["step"]
-        period = (payload["period"] * 3600000) // step
-        task_id = payload["task_id"]
-        model_path = payload.get("model_path")
-        clip_negatives_to_0 = payload.get("clip_negatives_to_0", True)
-        online = model_path == "none"
-        use_dynamic_normalization = payload.get("use_dynamic_normalization", False)
-        response["task_id"] = task_id
-    except Exception as e:
-        logger.error(e)
-        response["state"]["message"] = f"{STATUS_DATA_FORMAT_ERROR}: Invalid input JSON"
-        logger.debug(f'{response=}')
-        return response
-
-    # -------- extract input data
-    y, timestamps, qds = [], [], []
-    try:
-        for item in payload["task_input"]:
-            ts, yv, qv = extract_data(item, interpolate=not online)
-            timestamps.append(ts)
-            y.append(yv)
-            qds.append(qv)
-    except Exception as e:
-        logger.error(e)
-        response["state"]["message"] = f"{STATUS_DATA_FORMAT_ERROR}: Invalid input dataset format"
-        logger.debug(f'{response=}')
-        return response
-
-    # -------- input QDS evaluation
-    critical_freq, non_critical_freq = count_input_qds(qds, y, timestamps)
-    input_qds, input_status, input_reason = evaluate_input_quality(
-        critical_freq, non_critical_freq
-    )
-
-    # Count NaN and gaps separateely
-    # critical_freq, gaps_freq, low_quality_freq = count_input_qds(qds, y, timestamps)
-
-    # input_qds, input_status, input_reason = evaluate_input_quality(
-    #     critical_freq, gaps_freq, low_quality_freq
-    # )
-
-    # -------- model init
-    base_pred_qds = QDS_BASE
-    status = STATUS_OK
-    reason = None
-
-    model = init_model(model_path, step)
-    if model is None:
-        model = init_model("none", step)
-        online = True
-        base_pred_qds = QDS_ERROR
-        status = STATUS_MODEL_FALLBACK
-        reason = "Model loading error, using online model (QDS=128)"
-
-    # Set dynamic normalization if requested and supported
-    if use_dynamic_normalization and isinstance(model, ModelWithMetaInfoAr):
-        model.use_dynamic_normalization = True
-
-    # -------- rz data
-    df_rz_melt = None
-    if RZ_API_URL is not None and require_rz_data(model):
-        try:
-            _, pred_timestamps = get_pred_timestamps(timestamps[0], step, period)
-            start_data = int(pred_timestamps[0])
-            end_data = int(pred_timestamps[-1])
-            mes = model_path.split('/')[3] if model_path else None
-            rz_request_payload = {
-                "mes": mes,
-                "start_data": start_data,
-                "end_data": end_data
-            }
-            response_rz = requests.post(
-                RZ_API_URL,
-                headers={'Content-Type': 'application/json'},
-                json=rz_request_payload
-            )
-            logger.debug(f"RZ API response status: {response_rz.status_code}")
-            df_rz_melt = convert_rz_format(response_rz.json())
-        except Exception as e:
-            logger.error(e)
-
-    # -------- prediction
-    try:
-        preds, pred_ts, is_matching = predict(
-            y=y,
-            timestamps=timestamps,
-            model=model,
-            step=step,
-            output_range=period,
-            online=online,
-            df_rz_melt=df_rz_melt,
-        )
-    except Exception as e:
-        logger.error(e)
-        response["state"]["message"] = f"{STATUS_EXECUTION_ERROR}: Forecast execution error"
-        logger.debug(f'{response=}')
-        return response
-
-    # -------- distribution mismatch
-    if not is_matching and status == STATUS_OK:
-        base_pred_qds = max(base_pred_qds, QDS_INCORRECT_INPUT)
-        status = STATUS_DATA_MISMATCH
-        reason = "Input data does not match training distribution (QDS=64)"
-
-    # -------- input issues (only if no higher-priority status)
-    if status == STATUS_OK and input_status:
-        status = input_status
-        reason = input_reason
-
-    # -------- final QDS
-    final_qds = max(base_pred_qds, input_qds)
-
-    # -------- post-processing
-    if clip_negatives_to_0:
-        preds = np.maximum(preds, 0)
-
-    result = [
-        [int(ts), None if np.isnan(p) else round(float(p), 1), int(final_qds)]
-        for ts, p in zip(pred_ts, preds)
-    ]
-
-    # -------- finalize response
-    response["task_status"] = "УСПЕШНО"
-    response["task_output"] = result
-    # For OK status return empty message, otherwise include status and reason
-    if status == STATUS_OK:
-        msg = ""
-    else:
-        msg = f"{status}: {reason}" if reason else status
-    response["state"] = {"quality": final_qds, "message": msg, "model_confidence": 1.0}
-    logger.debug(f'{response=}')
-
-    return response
-
-
-@app.post("/predict/")
-async def process_data(request: Request):
-    async with semaphore:
-        return await _process_data(request)
-
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 200, 422, 500, 503
+    result = await broker.result_backend.get_result(task_id)
+    return messages.to_json_response(task_id, result.return_value)

@@ -4,8 +4,8 @@
 
 from typing import List, Tuple, Optional
 
-from api.utils import QDS, Threshold
-from api.inference import get_last_past_index
+from api.utils import get_last_past_index
+from .enums import QDS, Threshold
 
 import numpy as np
 

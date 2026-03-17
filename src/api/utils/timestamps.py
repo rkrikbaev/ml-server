@@ -1,0 +1,115 @@
+# Mariya Polkovnikova
+# 2026.03.17, 10:09 AM
+
+
+from typing import List, Tuple
+from datetime import datetime, timezone
+
+from api import GMT_TO_ASTANA_HOURS
+from .other import get_last_past_index
+
+import numpy as np
+import pandas as pd
+
+
+def generate_timestamp(mode: str) -> Tuple[int, int]:
+    """
+    Generate timestamp for the given mode.
+
+    :param str mode: The mode for which to generate the timestamp. Supported
+        modes are "day" and "month".
+
+    :return: A tuple containing the start timestamp (from_tp) and end
+        timestamp (to_tp) in seconds since the epoch.
+    :rtype: Tuple[int, int]
+    """
+
+    utc = timezone.utc
+    d = datetime.now(tz=utc)
+
+    match mode:
+        case "day":
+            from_tp = datetime(d.year, d.month, d.day, 0, 0, 0, 0, utc)
+            to_tp = datetime(d.year, d.month, d.day + 3, 0, 0, 0, 0, utc)
+        case "month":
+            from_tp = datetime(d.year, d.month, 1, 0, 0, 0, 0, utc)
+            to_tp = datetime(d.year, d.month + 1, 1, 0, 0, 0, 0, utc)
+        case _:
+            from_tp = datetime(d.year, 1, 1, 0, 0, 0, 0, utc)
+            to_tp = datetime(d.year + 1, 1, 1, 0, 0, 0, 0, utc)
+
+    from_tp = int(datetime.timestamp(from_tp)) * 1000
+    to_tp = int(datetime.timestamp(to_tp)) * 1000
+    return from_tp, to_tp
+
+
+def timestamps_to_timezoned_timestamps(
+    timestamps: List[int] | np.ndarray,
+    timezone_offset_hours: int
+) -> np.ndarray:
+    """
+    Convert a list of timestamps in ms to timezoned timestamps in ms.
+
+    :param List[int] | np.ndarray timestamps: List of timestamps in ms.
+    :param int timezone_offset_hours: Timezone offset in hours.
+
+    :return: Timezoned timestamps in ms.
+    :rtype: np.ndarray
+    """
+
+    # Convert to pandas datetime
+    df = pd.DataFrame({"dt": timestamps})
+    df["dt"] = pd.to_datetime(df["dt"], unit="ms")
+
+    # Apply timezone offset
+    df["dt"] = df["dt"] + pd.to_timedelta(timezone_offset_hours, unit="h")
+
+    # Convert back to timestamps in ms
+    return (df["dt"].astype(np.int64) // 10**6).values
+
+
+def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int) -> Tuple[int, np.ndarray]:
+    """
+    Get prediction timestamps for the given timestamps, step, and output
+    range.
+
+    :param np.ndarray ts: Array of timestamps in ms.
+    :param int step: Step in ms.
+    :param int output_range: Output range.
+
+    :return: A tuple containing the last past index and prediction timestamps
+        in ms.
+    :rtype: Tuple[int, np.ndarray]
+    """
+
+    # Convert to Astana timezone
+    ts_zoned = timestamps_to_timezoned_timestamps(ts, GMT_TO_ASTANA_HOURS)
+
+    last_past_index = get_last_past_index(ts_zoned)
+    pred_start_dt = pd.to_datetime(ts_zoned[last_past_index], unit="ms")
+
+    if step == 2592000000:  # Round to the current month start, then add one month
+        pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
+        pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
+
+    elif step == 86400000:  # Round to the current day start, then add one day
+        pred_start_dt = pred_start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        pred_start_dt = pred_start_dt + pd.DateOffset(days=1)
+        pred_dt = [pred_start_dt + pd.DateOffset(days=i) for i in range(output_range)]
+
+    elif step == 3600000:  # Round to the current hour start, then add one hour
+        pred_start_dt = pred_start_dt.replace(minute=0, second=0, microsecond=0)
+        pred_start_dt = pred_start_dt + pd.DateOffset(hours=1)
+        pred_dt = [pred_start_dt + pd.DateOffset(hours=i) for i in range(output_range)]
+
+    else:  # Do not round for other steps
+        pass
+
+    pred_timestamps = [int(dt.timestamp() * 1000) for dt in pred_dt]
+    pred_timestamps = np.array(pred_timestamps, dtype=int)
+
+    # Convert back to GMT timezone
+    pred_timestamps = timestamps_to_timezoned_timestamps(pred_timestamps, -GMT_TO_ASTANA_HOURS)
+
+    return last_past_index, pred_timestamps

@@ -2,7 +2,7 @@
 # 2026.03.13, 04:43 PM
 
 
-from typing import Tuple, Any, Optional
+from typing import Any, Optional
 
 from prophet import Prophet
 from pathlib import Path
@@ -10,25 +10,9 @@ from pathlib import Path
 from fpforecast.models.ar import ModelWithMetaInfoAr
 from fpforecast.models.prophet import ModelWithMetaInfoProphet
 
-from api.utils import SbreModel
 
-
-def get_model(model_path: str, step: int, use_dynamic_normalization: bool) -> Tuple[Any]:
-    """
-    Get model by path, step and use_dynamic_normalization.
-
-    :param str model_path: Path to model directory.
-    :param int step: Step in milliseconds.
-    :param bool use_dynamic_normalization: Whether to use dynamic
-        normalization.
-
-    :return: Tuple of base_pred_qds, status, reason, model.
-    :rtype: Tuple[QDS, HTTPMessages, str, Any]
-
-    :raises Exception: If the model is not dinamically normalized.
-    """
-
-    return init_model(model_path, step, use_dynamic_normalization)
+class SbreModel:
+    pass
 
 
 def init_model(
@@ -51,33 +35,30 @@ def init_model(
     """
 
     if model_rel_dirpath == "none":
-        # logger.debug("model_rel_dirpath is \"none\"")
+        print("model_rel_dirpath is \"none\"")
 
-        # Create new Prophet model to train on the provided inputs and no normalization
-        if step == 2592000000:
-            # Monthly (30 days) step expected to have 12+ months of data
+        if step == 2592000000:  # Monthly (30 days) step expected to have 12+ months of data
             seasonality_kwargs = {
                 "daily_seasonality": False,
                 "weekly_seasonality": False,
                 "yearly_seasonality": True,
             }
 
-        elif step == 86400000:
-            # Daily step expected to have 30+ days of data
+        elif step == 86400000:  # Daily step expected to have 30+ days of data
             seasonality_kwargs = {
                 "daily_seasonality": True,
                 "weekly_seasonality": True,
                 "yearly_seasonality": False,
             }
 
-        elif step == 3600000:
-            # Hourly step expected to have 30+ days of data
+        elif step == 3600000:  # Hourly step expected to have 30+ days of data
             seasonality_kwargs = {
                 "daily_seasonality": True,
                 "weekly_seasonality": False,
                 "yearly_seasonality": False,
             }
 
+        # Create new Prophet model to train on the provided inputs and no normalization
         model = Prophet(
             changepoint_prior_scale=0.1,
             changepoint_range=0.9,
@@ -86,11 +67,11 @@ def init_model(
             n_changepoints=5,
             seasonality_mode="multiplicative",
             seasonality_prior_scale=30.0,
-            **seasonality_kwargs,
+            **seasonality_kwargs
         )
 
     elif model_rel_dirpath == "sbre":
-        # logger.debug("model_rel_dirpath is \"sbre\"")
+        print("model_rel_dirpath is \"sbre\"")
         model = SbreModel()
 
     else:
@@ -102,25 +83,24 @@ def init_model(
 
         model_dirpath = base_dirpath / model_rel_dirpath
         if model_type == "xgb":
-            # logger.debug(f"Trying to loading xgb model from {model_dirpath}")
+            print(f"Trying to loading xgb model from {model_dirpath}")
             model_filepath = model_dirpath / "xgb_model.json"
             model_class = ModelWithMetaInfoAr
 
         elif model_type == "prophet":
-            # logger.debug(f"Trying to loading prophet model from {model_dirpath}")
+            print(f"Trying to loading prophet model from {model_dirpath}")
             model_filepath = model_dirpath / "prophet_model.json"
             model_class = ModelWithMetaInfoProphet
 
-        print(model_filepath)
         if not model_filepath.is_file():
-            # logger.warning(f"Model file not found: {model_filepath}")
+            print(f"Model file not found: {model_filepath}")
             model = None
 
         else:
-            # logger.debug(f"Loading model from {model_filepath}")
+            print(f"Loading model from {model_filepath}")
             model = model_class.load_model(model_filepath)
 
-    # logger.debug(f"Initialized model: {model}")
+    print(f"Initialized model: {model}")
 
     # Set dynamic normalization if requested and supported
     try:

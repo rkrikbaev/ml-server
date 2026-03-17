@@ -1,87 +1,43 @@
-# ????.??.??, ??, ?? ?M
+# 20??.??.??, ??, ?? ?M
 
 
-from typing import List
-from logging import getLogger
-
-from .utils import SbreModel
+from typing import List, Tuple, Any, Optional
 
 from fpforecast.models.ar import ModelWithMetaInfoAr
 from fpforecast.models.prophet import ModelWithMetaInfoProphet
 from fpforecast.features import merge_rz_structure
 
+from api.utils import get_pred_timestamps
+from .model import SbreModel
+
 import numpy as np
 import pandas as pd
 
 
-logger = getLogger(__file__)
-GMT_TO_ASTANA_HOURS = 5
-
-
-def get_last_past_index(timestamps: np.ndarray) -> int:
-    return len(timestamps) // 2
-
-
-def timestamps_to_timezoned_timestamps(
-    timestamps: List[int] | np.ndarray,
-    timezone_offset_hours: int
-) -> np.ndarray:
-    # Convert to pandas datetime
-    df = pd.DataFrame({"dt": timestamps})
-    df["dt"] = pd.to_datetime(df["dt"], unit="ms")
-
-    # Apply timezone offset
-    df["dt"] = df["dt"] + pd.to_timedelta(timezone_offset_hours, unit="h")
-
-    # Convert back to timestamps in ms
-    return (df["dt"].astype(np.int64) // 10**6).values
-
-
-def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int):
-    # Convert to Astana timezone
-    ts_zoned = timestamps_to_timezoned_timestamps(ts, GMT_TO_ASTANA_HOURS)
-
-    last_past_index = get_last_past_index(ts_zoned)
-    pred_start_dt = pd.to_datetime(ts_zoned[last_past_index], unit="ms")
-    if step == 2592000000:
-        # Round to the current month start, then add one month
-        pred_start_dt = pred_start_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        pred_start_dt = pred_start_dt + pd.DateOffset(months=1)
-        pred_dt = [pred_start_dt + pd.DateOffset(months=i) for i in range(output_range)]
-    elif step == 86400000:
-        # Round to the current day start, then add one day
-        pred_start_dt = pred_start_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-        pred_start_dt = pred_start_dt + pd.DateOffset(days=1)
-        pred_dt = [pred_start_dt + pd.DateOffset(days=i) for i in range(output_range)]
-    elif step == 3600000:
-        # Round to the current hour start, then add one hour
-        pred_start_dt = pred_start_dt.replace(minute=0, second=0, microsecond=0)
-        pred_start_dt = pred_start_dt + pd.DateOffset(hours=1)
-        pred_dt = [pred_start_dt + pd.DateOffset(hours=i) for i in range(output_range)]
-    else:
-        # Do not round for other steps
-        pass
-
-    pred_timestamps = [
-        int(dt.timestamp() * 1000) for dt in pred_dt
-    ]
-    pred_timestamps = np.array(pred_timestamps, dtype=int)
-
-    # Convert back to GMT timezone
-    pred_timestamps = timestamps_to_timezoned_timestamps(pred_timestamps, -GMT_TO_ASTANA_HOURS)
-
-    return last_past_index, pred_timestamps
-
-
 def predict(
-    model,
+    model: Any,
     timestamps: List[np.ndarray],
     y: List[np.ndarray],
     step: int,
     output_range: int,
     online: bool,
-    df_rz_melt: pd.DataFrame | None = None,
-):
+    df_rz_melt: Optional[pd.DataFrame] = None
+) -> Tuple[Any]:
+    """
+    Run model prediction.
+
+    :param Any mode: Model to use for prediction.
+    :param List[np.ndarray] timestamps: List of timestamps.
+    :param List[np.ndarray] y: List of values.
+    :param int step: Step size.
+    :param int output_range: Output range.
+    :param bool online: Whether to use online mode.
+    :param Optional[pd.DataFrame] df_rz_melt: Optional melted RZ dataframe.
+
+    :return: 3 parameters: forecast, timestamps, and quality flag
+    :rtype: Tuple[np.ndarray, np.ndarray, bool]
+    """
+
     # По умолчанию считаем, что данные соответствуют распределению
     is_matching = True
 
@@ -124,7 +80,7 @@ def predict(
         )
         df_pred = model.predict(df)
         y_pred = df_pred["yhat"].values
-        logger.debug(f"{len(y_pred)=}, {y_pred=}")
+        print(f"{len(y_pred)=}, {y_pred=}")
 
     elif isinstance(model, SbreModel):
         y_pred = y[1]

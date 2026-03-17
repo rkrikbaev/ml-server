@@ -4,7 +4,7 @@
 
 from typing import List
 
-from .predict import PredictCreateSchema, PredictUpdateSchema
+from api.data import PredictCreateSchema, PredictUpdateSchema
 
 
 def get_fields() -> List:

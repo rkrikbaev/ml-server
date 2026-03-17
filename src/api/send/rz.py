@@ -12,9 +12,14 @@ from fpforecast.constants import KOD_OBLASTI_TO_PATH
 from fpforecast.features import melt_rz_data
 from fpforecast.models.ar import ModelWithMetaInfoAr
 
-from api.message import HTTPMessages
-from api.inference import get_pred_timestamps
-from api.config import HEADERS, TIMEOUT
+from api import (
+    RZ_URL,
+    HEADERS,
+    CLIENT_TIMEOUT_ONE,
+    CLIENT_TIMEOUT_ALL,
+    HTTPMessages
+)
+from api.utils import get_pred_timestamps
 
 import pandas as pd
 
@@ -38,7 +43,7 @@ async def send_rz_url(
 
     output = None
 
-    async with AsyncClient(timeout=TIMEOUT * 5) as client:
+    async with AsyncClient(timeout=CLIENT_TIMEOUT_ALL) as client:
         request_success = False
         is_error = None
 
@@ -47,7 +52,7 @@ async def send_rz_url(
                 url=url,
                 headers=HEADERS,
                 data=data,
-                timeout=TIMEOUT
+                timeout=CLIENT_TIMEOUT_ONE
             )
             if 200 <= request.status_code < 300:
                 response = request.json()
@@ -158,8 +163,7 @@ def require_rz_data(model: Any) -> bool:
     return False
 
 
-async def get_rz_data(
-    url: str,
+async def get_data_from_rz(
     model: Any,
     mes: Optional[str],
     timestamp: list[Any],
@@ -169,7 +173,6 @@ async def get_rz_data(
     """
     Get RZ data for the specified model and timestamps.
 
-    :param str url: The URL to send the request to.
     :param Any model: Model object.
     :param Optional[str] mes: Optional mesh code.
     :param list[Any] timestamp: List of timestamps.
@@ -181,14 +184,14 @@ async def get_rz_data(
     """
 
     is_rz = require_rz_data(model)
-    if url is not None and is_rz:
+    if RZ_URL is not None and is_rz:
         try:
             _, pred_timestamps = get_pred_timestamps(timestamp, step, period)
             start_data = int(pred_timestamps[0])
             end_data = int(pred_timestamps[-1])
 
             return await send_rz_url(  # 200, 503
-                url,
+                RZ_URL,
                 dumps({
                     "mes": mes,
                     "start_data": start_data,

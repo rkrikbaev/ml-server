@@ -8,8 +8,15 @@ from json import dumps
 from httpx import AsyncClient
 from fastapi.responses import JSONResponse
 
-from api import HTTPMessages, QDS, generate_timestamp, interpolate_nan_1d
-from api.config import NDC_URLS, HEADERS, TIMEOUT
+from api import (
+    NDC_URLS,
+    HEADERS,
+    CLIENT_TIMEOUT_ONE,
+    CLIENT_TIMEOUT_ALL,
+    HTTPMessages
+)
+from api.utils import generate_timestamp, interpolate_nan_1d
+from api.forecast import QDS
 
 import numpy as np
 
@@ -34,7 +41,7 @@ async def send_ndc_url(
 
     output = None
 
-    async with AsyncClient(timeout=TIMEOUT * 5) as client:
+    async with AsyncClient(timeout=CLIENT_TIMEOUT_ALL) as client:
         request_success = False
         is_error = None
 
@@ -44,7 +51,7 @@ async def send_ndc_url(
                     url=url,
                     headers=HEADERS,
                     data=data,
-                    timeout=TIMEOUT
+                    timeout=CLIENT_TIMEOUT_ONE
                 )
                 if 200 <= request.status_code < 300:
                     response = request.json()

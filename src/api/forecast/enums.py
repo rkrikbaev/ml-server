@@ -1,15 +1,8 @@
-# ????.??.??, ??, ?? ?M
+# 20??.??.??, ??, ?? ?M
 
 
-from typing import Tuple
+from typing import List
 from enum import IntEnum, Enum
-from datetime import datetime, timezone
-
-from logging import getLogger
-
-import numpy as np
-
-logger = getLogger(__file__)
 
 
 class QDS(IntEnum):
@@ -60,11 +53,11 @@ class QDS(IntEnum):
     MISSING_VALUE = 256
 
     @classmethod
-    def noncritical(cls):
+    def noncritical(cls) -> List[int]:
         return [1, 2, 4, 8, 16, 32, 64]
 
     @classmethod
-    def critical(cls):
+    def critical(cls) -> List[int]:
         return [128, 256]
 
 
@@ -72,65 +65,3 @@ class Threshold(Enum):
     CRITICAL_TO_SET_ERROR = 0.1
     NON_CRITICAL_TO_SET_ERROR = 0.7
     NON_CRITICAL_TO_SET_INCORRECT = 0.5
-
-
-class SbreModel:
-    pass
-
-
-def generate_timestamp(mode: str) -> Tuple[int, int]:
-    """
-    Generate timestamp for the given mode.
-
-    :param str mode: The mode for which to generate the timestamp. Supported
-        modes are "day" and "month".
-
-    :return: A tuple containing the start timestamp (from_tp) and end
-        timestamp (to_tp) in seconds since the epoch.
-    :rtype: Tuple[int, int]
-    """
-
-    d = datetime.now(tz=timezone.utc)
-
-    match mode:
-        case "day":
-            from_tp = datetime(d.year, d.month, d.day, 0, 0, 0, 0, timezone.utc)
-            to_tp = datetime(d.year, d.month, d.day + 3, 0, 0, 0, 0, timezone.utc)
-        case "month":
-            from_tp = datetime(d.year, d.month, 1, 0, 0, 0, 0, timezone.utc)
-            to_tp = datetime(d.year, d.month + 1, 1, 0, 0, 0, 0, timezone.utc)
-        case _:
-            from_tp = datetime(d.year, 1, 1, 0, 0, 0, 0, timezone.utc)
-            to_tp = datetime(d.year + 1, 1, 1, 0, 0, 0, 0, timezone.utc)
-
-    from_tp = int(datetime.timestamp(from_tp)) * 1000
-    to_tp = int(datetime.timestamp(to_tp)) * 1000
-    return from_tp, to_tp
-
-
-# https://stackoverflow.com/a/6520696
-def nan_helper(y: np.array) -> Tuple:
-    """
-    Helper to handle indices and logical indices of NaNs.
-
-    Input:
-        - y, 1d numpy array with possible NaNs
-    Output:
-        - nans, logical indices of NaNs
-        - index, a function, with signature indices= index(logical_indices),
-          to convert logical indices of NaNs to 'equivalent' indices
-    Example:
-        >>> # linear interpolation of NaNs
-        >>> nans, x= nan_helper(y)
-        >>> y[nans]= np.interp(x(nans), x(~nans), y[~nans])
-    """
-
-    return np.isnan(y), lambda z: z.nonzero()[0]
-
-
-def interpolate_nan_1d(y: np.array) -> np.array:
-    if np.all(np.isnan(y)):
-        return y
-    nans, x = nan_helper(y)
-    y[nans] = np.interp(x(nans), x(~nans), y[~nans])
-    return y
