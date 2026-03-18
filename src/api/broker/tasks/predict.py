@@ -5,7 +5,7 @@
 from typing import List, Dict, Any
 from numpy import maximum, isnan
 
-from api import HTTPMessages
+from api import HTTPStatuses, HTTPMessages
 from api.forecast import (
     QDS,
     init_model,
@@ -44,51 +44,55 @@ async def logic(
     :rtype: Dict[str, Any]
     """
 
-    # NDC
-    output = await get_data_from_arvhives(mode, archives, step, online)
-    if isinstance(output, dict): return output
-
-    # Get: timestamp, value, qds
-    timestamp, value, qds = output[0], output[1], output[2]
-    del output
-
-    # Model Initialization
-    model = init_model(model_path, step, use_dynamic_normalization)
-
-    # RZ
-    mes = model_path.split("/")[3] if model_path else None
-    df_rz = await get_data_from_rz(model, mes, timestamp[0], step, output_range)
-    if isinstance(df_rz, dict): return df_rz
-
-    # Primary
     try:
-        preds, pred_ts, is_matching = predict(
-            y=value,
-            timestamps=timestamp,
-            model=model,
-            step=step,
-            output_range=output_range,
-            online=online,
-            df_rz_melt=df_rz
-        )
-    except Exception as e:  # 422
-        return HTTPMessages.unprocessable_entity_forecast(str(e))
+        # NDC
+        output = await get_data_from_arvhives(mode, archives, step, online)
+        if isinstance(output, dict): return output
 
-    # QDS Assessment
-    critical_freq, non_critical_freq = count_input_qds(timestamp, value, qds)
-    input_qds, input_reason = evaluate_input_quality(critical_freq, non_critical_freq)
+        # Get: timestamp, value, qds
+        timestamp, value, qds = output[0], output[1], output[2]
+        del output
 
-    return HTTPMessages.ok_done(
-        result(
-            model,
-            is_matching,
-            input_qds,
-            input_reason,
-            clip_negatives_to_0,
-            preds,
-            pred_ts
+        # Model Initialization
+        model = init_model(model_path, step, use_dynamic_normalization)
+
+        # RZ
+        mes = model_path.split("/")[3] if model_path else None
+        df_rz = await get_data_from_rz(model, mes, timestamp[0], step, output_range)
+        if isinstance(df_rz, dict): return df_rz
+
+        # Primary
+        try:
+            preds, pred_ts, is_matching = predict(
+                y=value,
+                timestamps=timestamp,
+                model=model,
+                step=step,
+                output_range=output_range,
+                online=online,
+                df_rz_melt=df_rz
+            )
+        except Exception as e:  # 422
+            return HTTPMessages.unprocessable_entity_forecast(str(e))
+
+        # QDS Assessment
+        critical_freq, non_critical_freq = count_input_qds(timestamp, value, qds)
+        input_qds, input_reason = evaluate_input_quality(critical_freq, non_critical_freq)
+
+        return HTTPMessages.ok_done(
+            result(
+                model,
+                is_matching,
+                input_qds,
+                input_reason,
+                clip_negatives_to_0,
+                preds,
+                pred_ts
+            )
         )
-    )
+
+    except Exception as e:  # 500
+        return HTTPMessages.internal_server_error(str(e))
 
 
 def result(
@@ -118,23 +122,23 @@ def result(
     """
 
     base_pred_qds = QDS.BASE
-    status = HTTPMessages.SC200
+    status = HTTPStatuses.SC200
     reason = ""
 
     # Model
     if model is None:  # 422
         base_pred_qds = QDS.INVALID
-        status = HTTPMessages.SC422
+        status = HTTPStatuses.SC422
         reason = f"Model loading error, using online model (QDS={base_pred_qds})"
 
     # Primary
-    if not is_matching and status == HTTPMessages.SC200:  # 422
+    if not is_matching and status == HTTPStatuses.SC200:  # 422
         base_pred_qds = max(base_pred_qds, QDS.NOT_TOPICAL)
-        status = HTTPMessages.SC422
+        status = HTTPStatuses.SC422
         reason = f"Input data does not match training distribution (QDS={base_pred_qds})"
 
     # Input issues (only if no higher-priority status)
-    if status == HTTPMessages.SC200 and input_qds:
+    if status == HTTPStatuses.SC200 and input_qds:
         status = input_qds
         reason = input_reason
 
@@ -151,7 +155,7 @@ def result(
     ]
 
     # Finalize response
-    msg = "" if status == HTTPMessages.SC200 else reason
+    msg = "" if status == HTTPStatuses.SC200 else reason
     return {
         "message": msg,
         "output": result,
