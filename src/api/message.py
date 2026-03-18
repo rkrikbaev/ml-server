@@ -51,17 +51,21 @@ class HTTPMessages:
     def message503(mode: str) -> str:
         return f"{mode} is not available, so it is impossible to take values ​​at this time."
 
-    def to_json_response(self, id: str, data: dict, state: str) -> JSONResponse:
+    def to_json_response(self, id: Optional[str], data: dict, state: str) -> JSONResponse:
         status_code = data.get("status", 0)
-        data["task_id"] = id
+
+        if id:
+            data["task_id"] = id
 
         match state:
             case HTTPState.START:
                 HTTPState.state_start(data)
             case HTTPState.PROCESSING:
                 HTTPState.state_processing(data)
-            case _:
+            case HTTPState.DONE:
                 HTTPState.state_done(data)
+            case _:
+                pass
 
         return JSONResponse(content=data, status_code=status_code)
 
@@ -74,9 +78,10 @@ class HTTPMessages:
 
     # 202
     @classmethod
-    def accepted_start(cls, id: str) -> JSONResponse:
+    def accepted_start(cls, id: str, fp_path: str) -> JSONResponse:
         content = cls.response(HTTPStatuses.SC202)
         content["task_id"] = id
+        content["fp_path"] = fp_path
         return content
 
     @classmethod
@@ -93,7 +98,7 @@ class HTTPMessages:
 
     # 422
     @classmethod
-    def unprocessable_entity(cls, errors: List[str]) -> JSONResponse:
+    def unprocessable_entity(cls, errors: Dict[str, List[str]]) -> JSONResponse:
         content = cls.response(HTTPStatuses.SC422, "A valid JSON format was expected, but the data was not received or was invalid.")
         content["details"] = errors
         return content

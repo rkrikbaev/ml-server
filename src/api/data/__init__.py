@@ -1,3 +1,3 @@
-from .predict import PredictCreateSchema, PredictUpdateSchema
+from .predict import PredictCreateSchema, PredictUpdateSchema, PredictSchema
 
-__all__ = ["PredictCreateSchema", "PredictUpdateSchema"]
+__all__ = ["PredictCreateSchema", "PredictUpdateSchema", "PredictSchema"]

@@ -15,7 +15,7 @@ broker = RedisStreamBroker(REDIS_URL).with_result_backend(result_backend)
 
 @broker.task
 async def api_predict(data: Dict[str, Any]) -> Dict[str, Any]:
-    return await predict_logic(
+    output = await predict_logic(
         mode=data["mode"],
         model_path=data["model_path"],
         archives=data["archives"],
@@ -25,3 +25,5 @@ async def api_predict(data: Dict[str, Any]) -> Dict[str, Any]:
         clip_negatives_to_0=data["clip_negatives_to_0"],
         use_dynamic_normalization=data["use_dynamic_normalization"]
     )
+    output["fp_path"] = data["fp_path"]
+    return output

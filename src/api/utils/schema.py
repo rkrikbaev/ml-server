@@ -4,6 +4,7 @@
 
 from typing import List
 
+from api import TAG_CREATE, TAG_UPDATE
 from api.data import PredictCreateSchema, PredictUpdateSchema
 
 
@@ -16,6 +17,6 @@ def get_fields() -> List:
     :rtype: List[str]
     """
 
-    predict_create = list(PredictCreateSchema.model_fields.keys())
-    predict_update = list(PredictUpdateSchema.model_fields.keys())
-    return predict_create + predict_update
+    predict_create = list(PredictCreateSchema.model_fields.keys()) + list(PredictCreateSchema.model_computed_fields.keys())
+    predict_update = list(PredictUpdateSchema.model_fields.keys()) + list(PredictUpdateSchema.model_computed_fields.keys())
+    return {TAG_CREATE: predict_create, TAG_UPDATE: predict_update}
