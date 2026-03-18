@@ -65,10 +65,10 @@ async def send_rz_url(
             is_error = str(e)
 
         if not request_success:  # 503
-            return HTTPMessages.service_unavailable_rz(is_error, is_dict=True)
+            return HTTPMessages.service_unavailable_rz(is_error)
 
     if output is None:  # 503
-        return HTTPMessages.service_unavailable_rz(is_dict=True)
+        return HTTPMessages.service_unavailable_rz()
 
     return output
 
@@ -201,4 +201,4 @@ async def get_data_from_rz(
             )
 
         except Exception as e:  # 500
-            return HTTPMessages.internal_server_error(str(e), is_dict=True)
+            return HTTPMessages.internal_server_error(str(e))

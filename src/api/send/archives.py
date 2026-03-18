@@ -69,10 +69,10 @@ async def send_ndc_url(
                 continue
 
         if not request_success:  # 503
-            return HTTPMessages.service_unavailable_ndc(is_error, is_dict=True)
+            return HTTPMessages.service_unavailable_ndc(is_error)
 
     if output is None:  # 503
-        return HTTPMessages.unprocessable_entity_ndc(is_dict=True)
+        return HTTPMessages.unprocessable_entity_ndc()
 
     return output
 
@@ -91,6 +91,10 @@ def extract_data(values: List, interpolate: bool) -> Tuple[np.ndarray]:
         descriptors.
     :rtype: Tuple[np.ndarray]
     """
+
+    if len(values) == 0:
+        print("Zero len of dataset")
+        raise ValueError("Zero len of dataset")
 
     # Get timestamps
     timestamps = np.array([ts for ts, _, _ in values], dtype=int)
@@ -132,7 +136,7 @@ async def get_data_from_arvhives(mode: str, archives: List[str], step: int, onli
                 qds.append(qv)
 
         except Exception:  # 422
-            return HTTPMessages.unprocessable_entity_ndc(is_dict=True)
+            return HTTPMessages.unprocessable_entity_ndc(QDS.INVALID)
 
         return timestamps, values, qds
 

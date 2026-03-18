@@ -72,7 +72,7 @@ async def logic(
             df_rz_melt=df_rz
         )
     except Exception as e:  # 422
-        return HTTPMessages.unprocessable_entity_forecast(str(e), is_dict=True)
+        return HTTPMessages.unprocessable_entity_forecast(str(e))
 
     # QDS Assessment
     critical_freq, non_critical_freq = count_input_qds(timestamp, value, qds)
@@ -87,8 +87,7 @@ async def logic(
             clip_negatives_to_0,
             preds,
             pred_ts
-        ),
-        is_dict=True
+        )
     )
 
 

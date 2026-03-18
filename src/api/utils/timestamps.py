@@ -6,7 +6,6 @@ from typing import List, Tuple
 from datetime import datetime, timezone
 
 from api import GMT_TO_ASTANA_HOURS
-from .other import get_last_past_index
 
 import numpy as np
 import pandas as pd
@@ -85,7 +84,10 @@ def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int) -> Tuple[i
     # Convert to Astana timezone
     ts_zoned = timestamps_to_timezoned_timestamps(ts, GMT_TO_ASTANA_HOURS)
 
-    last_past_index = get_last_past_index(ts_zoned)
+    # Split point: assume input is past + future window, so past length = len(ts) - output_range
+    # This avoids incorrect mid-split when W_past != W_future.
+
+    last_past_index = len(ts_zoned) - output_range
     pred_start_dt = pd.to_datetime(ts_zoned[last_past_index], unit="ms")
 
     if step == 2592000000:  # Round to the current month start, then add one month

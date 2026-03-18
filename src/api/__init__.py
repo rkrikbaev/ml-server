@@ -8,7 +8,7 @@ from .config import (
     CLIENT_TIMEOUT_ALL,
     GMT_TO_ASTANA_HOURS
 )
-from .message import HTTPMessages
+from .message import HTTPState, HTTPStatuses, HTTPMessages
 
 __all__ = [
     "REDIS_URL",
@@ -19,5 +19,7 @@ __all__ = [
     "CLIENT_TIMEOUT_ONE",
     "CLIENT_TIMEOUT_ALL",
     "GMT_TO_ASTANA_HOURS",
+    "HTTPState",
+    "HTTPStatuses",
     "HTTPMessages"
 ]
