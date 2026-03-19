@@ -9,6 +9,8 @@
 
 ## 1. predict
 
+Сначала регистрируется в брокере и отправляет в очередь worker. В это время возвращает статус `START`. Worker работает с задачей и возвращает результат со статусом `DONE`. Если задача у брокера не завершена или удалена статус появится `PROCESSING`.
+
 <img alt="Date of Creation" src="https://img.shields.io/badge/Date%20of%20Creation-20%3F%3F.%3F%3F.%3F%3F,%20%3F%3F:%3F%3F%20%3FM-1565c0?style=for-the-badge" />
 <img alt="URL" src="https://img.shields.io/badge/URL-/predict-a00069?style=for-the-badge" />
 <img alt="Method" src="https://img.shields.io/badge/Method-POST-00695c?style=for-the-badge" />
