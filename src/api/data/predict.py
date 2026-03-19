@@ -7,7 +7,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Discriminator,
-    Field,
     Tag,
     field_validator,
     model_validator,
@@ -29,7 +28,7 @@ class PredictCreateSchema(BaseModel):
     step: int = 3_600
     output_range: int = 1
     clip_negatives_to_0: bool = True
-    use_dynamic_normalization: bool = Field(default=False, alias="use_dynamic_normalization")
+    use_dynamic_normalization: bool = False
     archives: List[str]
     fp_path: str
 
