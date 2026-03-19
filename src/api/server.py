@@ -29,7 +29,7 @@ messages = HTTPMessages()
 # 404
 @app.exception_handler(404)
 def not_found_exception_handler(_request: Request, _exc: HTTPException):
-    return messages.not_found()
+    return messages.to_json_response(messages.not_found())
 
 
 # 422
@@ -43,7 +43,7 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
         if field[2] in fields.setdefault(field[1], []):
             details.setdefault(field[1], []).append(f"'{field[2]}' : {item["msg"]}")
 
-    return messages.to_json_response(None, messages.unprocessable_entity(details), "")
+    return messages.to_json_response(messages.unprocessable_entity(details))
 
 
 # --- API ---
@@ -54,8 +54,8 @@ async def process_data(data: PredictSchema = Body(...)) -> JSONResponse:
     if isinstance(data, PredictCreateSchema):  # 202: START
         task = await api_predict.kiq(data)
         return messages.to_json_response(
-            task.task_id,
             messages.accepted_start(task.task_id, data.fp_path),
+            task.task_id,
             HTTPState.START
         )
 
@@ -65,11 +65,11 @@ async def process_data(data: PredictSchema = Body(...)) -> JSONResponse:
     is_ready = await broker.result_backend.is_result_ready(task_id)
     if not is_ready:  # 202: PROCESSING
         return messages.to_json_response(
-            task_id,
             messages.accepted_processing(task_id),
+            task_id,
             HTTPState.PROCESSING
         )
 
     # 200, 422, 500, 503
     result = await broker.result_backend.get_result(task_id)
-    return messages.to_json_response(task_id, result.return_value, HTTPState.DONE)
+    return messages.to_json_response(result.return_value, task_id, HTTPState.DONE)

@@ -51,7 +51,7 @@ class HTTPMessages:
     def message503(mode: str) -> str:
         return f"{mode} is not available, so it is impossible to take values ​​at this time."
 
-    def to_json_response(self, id: Optional[str], data: dict, state: str) -> JSONResponse:
+    def to_json_response(self, data: dict, id: Optional[str] = None, state: str = "") -> JSONResponse:
         status_code = data.get("status", 0)
 
         if id:
