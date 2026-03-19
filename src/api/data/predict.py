@@ -14,7 +14,7 @@ from pydantic import (
 
 )
 
-from api import TAG_CREATE, TAG_UPDATE
+from api import TAG_PREDICT_CREATE, TAG_PREDICT_UPDATE
 
 
 class PredictCreateSchema(BaseModel):
@@ -101,16 +101,16 @@ def predict_discriminator(v: Any) -> str:
 
     :param Any v: Value to discriminate.
 
-    :return: TAG_CREATE or TAG_UPDATE.
+    :return: TAG_PREDICT_CREATE or TAG_PREDICT_UPDATE.
     :rtype: str
     """
 
     if isinstance(v, dict) and "task_id" in v:
-        return TAG_UPDATE
-    return TAG_CREATE
+        return TAG_PREDICT_UPDATE
+    return TAG_PREDICT_CREATE
 
 
 PredictSchema = Annotated[
-    Annotated[PredictCreateSchema, Tag("create")] | Annotated[PredictUpdateSchema, Tag("update")],
+    Annotated[PredictCreateSchema, Tag(TAG_PREDICT_CREATE)] | Annotated[PredictUpdateSchema, Tag(TAG_PREDICT_UPDATE)],
     Discriminator(predict_discriminator)
 ]

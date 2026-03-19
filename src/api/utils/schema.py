@@ -4,7 +4,7 @@
 
 from typing import List
 
-from api import TAG_CREATE, TAG_UPDATE
+from api import TAG_PREDICT_CREATE, TAG_PREDICT_UPDATE
 from api.data import PredictCreateSchema, PredictUpdateSchema
 
 
@@ -19,4 +19,4 @@ def get_fields() -> List:
 
     predict_create = list(PredictCreateSchema.model_fields.keys()) + list(PredictCreateSchema.model_computed_fields.keys())
     predict_update = list(PredictUpdateSchema.model_fields.keys()) + list(PredictUpdateSchema.model_computed_fields.keys())
-    return {TAG_CREATE: predict_create, TAG_UPDATE: predict_update}
+    return {TAG_PREDICT_CREATE: predict_create, TAG_PREDICT_UPDATE: predict_update}

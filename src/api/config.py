@@ -3,9 +3,6 @@
 
 
 from os import getenv
-# from dotenv import load_dotenv
-
-# load_dotenv()
 
 
 # -- Redis ---
@@ -37,5 +34,5 @@ GMT_TO_ASTANA_HOURS = 5
 
 # --- Tag ---
 
-TAG_CREATE = "create"
-TAG_UPDATE = "update"
+TAG_PREDICT_CREATE = "predict_create"
+TAG_PREDICT_UPDATE = "predict_update"

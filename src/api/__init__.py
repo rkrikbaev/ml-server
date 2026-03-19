@@ -7,8 +7,8 @@ from .config import (
     CLIENT_TIMEOUT_ONE,
     CLIENT_TIMEOUT_ALL,
     GMT_TO_ASTANA_HOURS,
-    TAG_CREATE,
-    TAG_UPDATE
+    TAG_PREDICT_CREATE,
+    TAG_PREDICT_UPDATE
 )
 from .message import HTTPState, HTTPStatuses, HTTPMessages
 
@@ -21,8 +21,8 @@ __all__ = [
     "CLIENT_TIMEOUT_ONE",
     "CLIENT_TIMEOUT_ALL",
     "GMT_TO_ASTANA_HOURS",
-    "TAG_CREATE",
-    "TAG_UPDATE",
+    "TAG_PREDICT_CREATE",
+    "TAG_PREDICT_UPDATE",
     "HTTPState",
     "HTTPStatuses",
     "HTTPMessages"
