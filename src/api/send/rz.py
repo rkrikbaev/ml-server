@@ -183,6 +183,9 @@ async def get_data_from_rz(
     :rtype: Optional[JSONResponse | pd.DataFrame]
     """
 
+    # TODO: не работает из-за функции 'get_pred_timestamps'
+    # 'get_pred_timestamps' входит в состав функции 'predict'
+
     is_rz = require_rz_data(model)
     if RZ_URL is not None and is_rz:
         try:

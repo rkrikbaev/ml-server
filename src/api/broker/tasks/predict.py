@@ -54,6 +54,8 @@ async def logic(
         del output
 
         # Model Initialization
+
+        # TODO: Какова цель класса 'SbreModel'? Пуста и входит в инициализатор 'init_model'
         model = init_model(model_path, step, use_dynamic_normalization)
 
         # RZ
@@ -62,6 +64,8 @@ async def logic(
         if isinstance(df_rz, dict): return df_rz
 
         # Primary
+
+        # TODO: не всегда отрабатывает функционал 'predict'
         try:
             preds, pred_ts, is_matching = predict(
                 y=value,
