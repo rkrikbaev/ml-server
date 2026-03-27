@@ -17,7 +17,6 @@ services:
       - "${PORT:-18888}:8000"
     environment:
       - PYTHONUNBUFFERED=1
-      - RZ_API_URL=${RZ_API_URL:-http://10.210.2.107:8080/get/forecast/applications}
     volumes:
       - "../local/${MODEL:-models}:/workspace/models"
       - "../src:/workspace/server"

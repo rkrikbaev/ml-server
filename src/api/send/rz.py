@@ -193,15 +193,12 @@ async def get_data_from_rz(
             start_data = int(pred_timestamps[0])
             end_data = int(pred_timestamps[-1])
 
-            return await send_rz_url(  # 200, 503
-                RZ_URL,
-                dumps({
-                    "mes": mes,
-                    "start_data": start_data,
-                    "end_data": end_data
-                }),
-                convert_rz_format
-            )
+            data = {
+                "mes": mes,
+                "start_data": start_data,
+                "end_data": end_data
+            }
+            return await send_rz_url(RZ_URL, dumps(data), convert_rz_format)  # 200, 503
 
         except Exception as e:  # 500
             return HTTPMessages.internal_server_error(str(e))
