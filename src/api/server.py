@@ -54,7 +54,7 @@ async def process_data(data: PredictSchema = Body(...)) -> JSONResponse:
     if isinstance(data, PredictCreateSchema):  # 202: START
         task = await api_predict.kiq(data)
         return messages.to_json_response(
-            messages.accepted_start(task.task_id, data.fp_path),
+            messages.accepted_start(task.task_id, data.object_reference),
             task.task_id,
             HTTPState.START
         )

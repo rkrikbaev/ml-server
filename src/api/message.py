@@ -52,6 +52,15 @@ class HTTPMessages:
         return f"{mode} is not available, so it is impossible to take values ​​at this time."
 
     def to_json_response(self, data: dict, id: Optional[str] = None, state: str = "") -> JSONResponse:
+        if not isinstance(data, dict):
+            return JSONResponse(
+                content=self.response(
+                    HTTPStatuses.SC500,
+                    "Invalid response format: expected a dictionary."
+                ),
+                status_code=HTTPStatuses.SC500
+            )
+
         status_code = data.get("status", 0)
 
         if id:
@@ -81,7 +90,7 @@ class HTTPMessages:
     def accepted_start(cls, id: str, fp_path: str) -> JSONResponse:
         content = cls.response(HTTPStatuses.SC202)
         content["task_id"] = id
-        content["fp_path"] = fp_path
+        content["object_reference"] = fp_path
         return content
 
     @classmethod
