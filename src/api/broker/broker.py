@@ -5,6 +5,7 @@
 from typing import Any, Dict
 
 from taskiq_redis import RedisStreamBroker, RedisAsyncResultBackend
+from redis import Redis
 
 from api import REDIS_URL, REDIS_TIMEOUT
 from .tasks import predict_logic
@@ -17,7 +18,7 @@ broker = RedisStreamBroker(REDIS_URL).with_result_backend(result_backend)
 async def api_predict(data: Dict[str, Any]) -> Dict[str, Any]:
     output = await predict_logic(
         mode=data["mode"],
-        model_path=data["model_path"],
+        model_path=data["model_id"],
         archives=data["archives"],
         step=data["step"],
         output_range=data["output_range"],
@@ -25,5 +26,11 @@ async def api_predict(data: Dict[str, Any]) -> Dict[str, Any]:
         clip_negatives_to_0=data["clip_negatives_to_0"],
         use_dynamic_normalization=data["use_dynamic_normalization"]
     )
-    output["fp_path"] = data["fp_path"]
+    output["object_reference"] = data["object_reference"]
     return output
+
+
+# async def hash_task_ids(task_id: str) -> None:
+#     async with Redis(connection_pool=self.redis_pool) as redis:
+#         if self.result_ex_time:
+#             await redis.set(name=name, value=value, ex=self.result_ex_time)

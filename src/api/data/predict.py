@@ -24,13 +24,14 @@ class PredictCreateSchema(BaseModel):
 
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    model_path: str = "none"
+    model_id: str = "none"
     step: int = 3_600
     output_range: int = 1
     clip_negatives_to_0: bool = True
     use_dynamic_normalization: bool = False
-    archives: List[str]
-    fp_path: str
+    archives: List[str] = []
+    object_reference: str
+    version: str
 
     @computed_field
     @property
@@ -45,12 +46,12 @@ class PredictCreateSchema(BaseModel):
     @computed_field
     @property
     def online(self) -> bool:
-        return self.model_path == "none"
+        return self.model_id == "none"
 
-    @field_validator("model_path")
+    @field_validator("model_id")
     @classmethod
-    def check_model_path(cls, v: str) -> str:
-        if len(v) == 0: raise ValueError("'model_path' must be non-empty")
+    def check_model_id(cls, v: str) -> str:
+        if len(v) == 0: raise ValueError("'model_id' must be non-empty")
         return v
 
     @field_validator("step")
@@ -65,17 +66,23 @@ class PredictCreateSchema(BaseModel):
         if v <= 0: raise ValueError("'output_range' must be greater than 0")
         return v
 
-    @field_validator("archives")
+    # @field_validator("archives")
+    # @classmethod
+    # def check_archives(cls, v: List[str]) -> List[str]:
+    #     if len(v) == 0: raise ValueError("'archives' must be non-empty")
+    #     return v
+
+    @field_validator("object_reference")
     @classmethod
-    def check_archives(cls, v: List[str]) -> List[str]:
-        if len(v) == 0: raise ValueError("'archives' must be non-empty")
+    def check_object_reference(cls, v: str) -> List[str]:
+        if len(v) == 0: raise ValueError("'object_reference' must be non-empty")
+        if "/" not in v and "\\" not in v: raise ValueError("'object_reference' must contain '/' or '\\'")
         return v
 
-    @field_validator("fp_path")
+    @field_validator("version")
     @classmethod
-    def check_fp_path(cls, v: str) -> List[str]:
-        if len(v) == 0: raise ValueError("'fp_path' must be non-empty")
-        if "/" not in v and "\\" not in v: raise ValueError("'fp_path' must contain '/' or '\\'")
+    def check_version(cls, v: str) -> List[str]:
+        if len(v) == 0: raise ValueError("'version' must be non-empty")
         return v
 
     @model_validator(mode="after")
