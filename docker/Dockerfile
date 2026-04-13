@@ -37,8 +37,9 @@ RUN python3.13 -m pip install --upgrade pip
 COPY requirements.txt .
 
 RUN python3.13 -m pip install --upgrade pip setuptools wheel
-RUN --mount=type=ssh mkdir -p -m 0700 ~/.ssh && ssh-keyscan 10.210.2.101 >> ~/.ssh/known_hosts
-RUN --mount=type=ssh git clone -b package git@10.210.2.101:mikhail.kotyushev/oik-new.git /tmp/package
-RUN python3.13 -m pip install /tmp/package
-RUN rm -rf /tmp/package
+# NOTE: SSH-dependent build steps commented out. To enable, configure SSH key forwarding during docker build.
+# RUN --mount=type=ssh mkdir -p -m 0700 ~/.ssh && ssh-keyscan 10.210.2.101 >> ~/.ssh/known_hosts
+# RUN --mount=type=ssh git clone -b package git@10.210.2.101:mikhail.kotyushev/oik-new.git /tmp/package
+# RUN python3.13 -m pip install /tmp/package
+# RUN rm -rf /tmp/package
 RUN python3.13 -m pip install -vr requirements.txt

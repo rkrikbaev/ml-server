@@ -1,12 +1,13 @@
 services:
   ml_model:
     image: fpcloud/ml:1.0.0
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
     extra_hosts:
       - "host.docker.internal:host-gateway"
     container_name: models_${MODEL:-models}
     restart: unless-stopped
-    env_file:
-      - ../.env
     command: >
       bash -c "
         taskiq worker api.broker:broker --workers 8 &
@@ -14,13 +15,14 @@ services:
         wait -n
       "
     ports:
-      - "${PORT:-18888}:8000"
+      - "${PORT:-8030}:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/workspace/server:/workspace/lib
     volumes:
       - "../local/${MODEL:-models}:/workspace/models"
-      - "../src:/workspace/server"
-      - "../lib:/workspace/lib"
+      - "/Users/rustamkrikbayev/Documents/projects/forecast/ml-server/src:/workspace/server"
+      - "/Users/rustamkrikbayev/Documents/projects/forecast/models:/workspace/lib"
     depends_on:
       - redis
     deploy:
@@ -37,8 +39,6 @@ services:
     image: redis:7
     container_name: redis
     restart: unless-stopped
-    env_file:
-      - ../.env
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -52,17 +52,15 @@ services:
       - ml
 
   mlflow:
-      image: mlflow:latest
-      container_name: mlflow
-      restart: unless-stopped
-      env_file:
-        - ../.env
-      ports:
-        - "${MLFLOW_PORT:-5000}:5000"
-      volumes:
-        - "../mlruns:/mlflow/mlruns"
-      networks:
-        - ml
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: mlflow
+    restart: unless-stopped
+    ports:
+      - "${MLFLOW_PORT:-5050}:5000"
+    volumes:
+      - "../mlruns:/mlflow/mlruns"
+    networks:
+      - ml
 
 networks:
   ml:
