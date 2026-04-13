@@ -21,8 +21,8 @@ services:
       - PYTHONPATH=/workspace/server:/workspace/lib
     volumes:
       - "../local/${MODEL:-models}:/workspace/models"
-      - "/Users/rustamkrikbayev/Documents/projects/forecast/ml-server/src:/workspace/server"
-      - "/Users/rustamkrikbayev/Documents/projects/forecast/models:/workspace/lib"
+      - "./src:/workspace/server"
+      - "../models:/workspace/lib"
     depends_on:
       - redis
     deploy:
