@@ -6,3 +6,6 @@ models_archive/
 **/*.png
 **/*.pdf
 .DS_Store
+local/models/
+
+local/
