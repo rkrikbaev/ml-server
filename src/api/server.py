@@ -3,14 +3,20 @@
 
 
 from contextlib import asynccontextmanager
+from os import getenv
+from pathlib import Path
+import json
+import os
+import resource
 
-from fastapi import FastAPI, Request, Body
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, Body, Query
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.exceptions import RequestValidationError, HTTPException
 
 from api.utils import get_fields
 from .broker import broker, api_predict
 from .data import PredictCreateSchema, PredictSchema
+from .forecast import load_model_config
 from .message import HTTPState, HTTPMessages
 
 
@@ -22,6 +28,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 messages = HTTPMessages()
+UI_DIR = Path(__file__).resolve().parent / "ui"
 
 
 # --- ERRORS ---
@@ -47,6 +54,113 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 
 
 # --- API ---
+
+@app.get("/ui")
+async def ui_index() -> FileResponse:
+    return FileResponse(UI_DIR / "index.html")
+
+
+@app.get("/ui/styles.css")
+async def ui_styles() -> FileResponse:
+    return FileResponse(UI_DIR / "styles.css", media_type="text/css")
+
+
+@app.get("/ui/app.js")
+async def ui_script() -> FileResponse:
+    return FileResponse(UI_DIR / "app.js", media_type="application/javascript")
+
+
+@app.get("/ui/model-config")
+async def ui_model_config(model_id: str = Query(..., min_length=1)) -> JSONResponse:
+    models_base_path = Path(getenv("MODELS_PATH", "/workspace/models"))
+    config_path = models_base_path / model_id / "config.json"
+
+    if not config_path.is_file():
+        content = {
+            "status": 404,
+            "message": f"Model config not found: {config_path}",
+            "model_id": model_id,
+        }
+        return JSONResponse(content=content, status_code=404)
+
+    with open(config_path) as f:
+        raw_config = json.load(f)
+
+    normalized_config = load_model_config(model_id).model_dump()
+
+    return JSONResponse(
+        content={
+            "status": 200,
+            "model_id": model_id,
+            "config_path": str(config_path),
+            "raw_config": raw_config,
+            "normalized_config": normalized_config,
+        },
+        status_code=200,
+    )
+
+
+@app.get("/ui/models")
+async def ui_models() -> JSONResponse:
+    models_base_path = Path(getenv("MODELS_PATH", "/workspace/models"))
+
+    if not models_base_path.is_dir():
+        return JSONResponse(
+            content={
+                "status": 404,
+                "message": f"Models path not found: {models_base_path}",
+                "models": [],
+            },
+            status_code=404,
+        )
+
+    model_items = []
+    for model_dir in sorted(models_base_path.iterdir()):
+        if not model_dir.is_dir():
+            continue
+
+        config_path = model_dir / "config.json"
+        if not config_path.is_file():
+            continue
+
+        model_items.append(
+            {
+                "model_id": model_dir.name,
+                "config_path": str(config_path),
+                "updated_at": int(config_path.stat().st_mtime),
+            }
+        )
+
+    return JSONResponse(
+        content={
+            "status": 200,
+            "count": len(model_items),
+            "models": model_items,
+        },
+        status_code=200,
+    )
+
+
+@app.get("/ui/runtime-status")
+async def ui_runtime_status() -> JSONResponse:
+    load_avg = os.getloadavg() if hasattr(os, "getloadavg") else (0.0, 0.0, 0.0)
+    rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+
+    return JSONResponse(
+        content={
+            "status": 200,
+            "cpu_load": {
+                "load_1m": round(load_avg[0], 3),
+                "load_5m": round(load_avg[1], 3),
+                "load_15m": round(load_avg[2], 3),
+            },
+            "memory": {
+                "rss_kb": int(rss_kb),
+                "rss_mb": round(rss_kb / 1024, 2),
+            },
+        },
+        status_code=200,
+    )
 
 @app.post("/predict")
 async def process_data(data: PredictSchema = Body(...)) -> JSONResponse:

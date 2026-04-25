@@ -11,15 +11,16 @@ REDIS_URL = "redis://redis:6379/0"
 REDIS_TIMEOUT = 3600  # 1 hour
 
 
-# -- NDC ---
+# -- Historical Data / NDC ---
 
-NDC_HOSTS = ["10.210.1.11", "10.210.1.13", "10.210.1.15"]
-NDC_URLS = [f"http://{host}:7080/api/read/archive" for host in NDC_HOSTS]
+HISTORICAL_DATA_HOSTS = ["10.210.1.11", "10.210.1.13", "10.210.1.15"]
+HISTORICAL_DATA_URLS = [f"http://{host}:7080/api/read/archive" for host in HISTORICAL_DATA_HOSTS]
 
 
-# --- RZ ---
+# --- Repairs / CMMS ---
 
-RZ_URL = getenv("RZ_API_URL")
+CMMS_URL = getenv("CMMS_URL") or getenv("CMMS_API_URL")
+RZ_URL = CMMS_URL
 
 
 # --- General ---

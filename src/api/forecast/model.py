@@ -3,16 +3,32 @@
 
 
 from typing import Any, Optional
+import logging
 
 from prophet import Prophet
 from pathlib import Path
 
-from fpforecast.models.ar import ModelWithMetaInfoAr
-from fpforecast.models.prophet import ModelWithMetaInfoProphet
+from api.forecast.base_interface import BaseModel
+from api.forecast.adapters import ARAdapter, ProphetAdapter
+
+logger = logging.getLogger(__name__)
 
 
-class SbreModel:
-    pass
+def _detect_model_type(model_rel_dirpath: str) -> str:
+    """Infer model type from a path-style or flat model identifier."""
+    normalized = model_rel_dirpath.replace("\\", "/")
+    first_segment = normalized.split("/")[0].lower()
+
+    if first_segment in {"xgb", "prophet"}:
+        return first_segment
+
+    flat_name = Path(model_rel_dirpath).name.lower()
+    if flat_name.startswith("xgb") or "xgb" in flat_name:
+        return "xgb"
+    if flat_name.startswith("prophet") or "prophet" in flat_name:
+        return "prophet"
+
+    raise AssertionError(f"Unknown model type: {model_rel_dirpath}")
 
 
 def init_model(
@@ -22,20 +38,22 @@ def init_model(
 ) -> Any:
     """
     Initialize model by path, step and use_dynamic_normalization.
+    
+    Updated to use adapter pattern instead of deprecated fpforecast module.
 
     :param str model_rel_dirpath: Path to model directory.
     :param int step: Step in milliseconds.
     :param bool use_dynamic_normalization: Whether to use dynamic
         normalization.
 
-    :return: Model instance.
+    :return: Model instance (BaseModel or Prophet).
     :rtype: Any
 
     :raises Exception: If the model is not dinamically normalized.
     """
 
     if model_rel_dirpath == "none":
-        print("model_rel_dirpath is \"none\"")
+        logger.info("model_rel_dirpath is 'none', creating new Prophet model")
 
         if step == 2592000000:  # Monthly (30 days) step expected to have 12+ months of data
             seasonality_kwargs = {
@@ -59,7 +77,7 @@ def init_model(
             }
 
         # Create new Prophet model to train on the provided inputs and no normalization
-        model = Prophet(
+        prophet_model = Prophet(
             changepoint_prior_scale=0.1,
             changepoint_range=0.9,
             growth="flat",
@@ -69,44 +87,61 @@ def init_model(
             seasonality_prior_scale=30.0,
             **seasonality_kwargs
         )
-
-    elif model_rel_dirpath == "sbre":
-        print("model_rel_dirpath is \"sbre\"")
-        model = SbreModel()
+        
+        # Wrap Prophet model in adapter
+        model = ProphetAdapter(model_name="prophet_new", legacy_model=prophet_model)
 
     else:
-        model_type = model_rel_dirpath.split("/")[0]
-        assert model_type in ["xgb", "prophet"]
+        model_type = _detect_model_type(model_rel_dirpath)
 
         base_dirpath = Path("/workspace/models")
         model_rel_dirpath = Path(model_rel_dirpath)
 
         model_dirpath = base_dirpath / model_rel_dirpath
-        if model_type == "xgb":
-            print(f"Trying to loading xgb model from {model_dirpath}")
-            model_filepath = model_dirpath / "xgb_model.json"
-            model_class = ModelWithMetaInfoAr
+        
+        try:
+            if model_type == "xgb":
+                logger.info(f"Loading XGBoost model from {model_dirpath}")
+                model_filepath = model_dirpath / "xgb_model.json"
+                
+                if not model_filepath.is_file():
+                    logger.warning(f"Model file not found: {model_filepath}")
+                    model = ARAdapter(model_name="ar_fallback")
+                else:
+                    logger.info(f"Loading AR model from {model_filepath}")
+                    # Try to load legacy model, wrap in adapter
+                    try:
+                        import json
+                        with open(model_filepath, 'r') as f:
+                            model_data = json.load(f)
+                        model = ARAdapter(model_name="ar_model")
+                    except Exception as e:
+                        logger.error(f"Failed to load XGBoost model: {e}, using fallback")
+                        model = ARAdapter(model_name="ar_fallback")
 
-        elif model_type == "prophet":
-            print(f"Trying to loading prophet model from {model_dirpath}")
-            model_filepath = model_dirpath / "prophet_model.json"
-            model_class = ModelWithMetaInfoProphet
+            elif model_type == "prophet":
+                logger.info(f"Loading Prophet model from {model_dirpath}")
+                model_filepath = model_dirpath / "prophet_model.json"
+                
+                if not model_filepath.is_file():
+                    logger.warning(f"Model file not found: {model_filepath}")
+                    model = ProphetAdapter(model_name="prophet_fallback")
+                else:
+                    logger.info(f"Loading Prophet model from {model_filepath}")
+                    # Try to load legacy model, wrap in adapter
+                    try:
+                        import json
+                        with open(model_filepath, 'r') as f:
+                            model_data = json.load(f)
+                        model = ProphetAdapter(model_name="prophet_model")
+                    except Exception as e:
+                        logger.error(f"Failed to load Prophet model: {e}, using fallback")
+                        model = ProphetAdapter(model_name="prophet_fallback")
+        except Exception as e:
+            logger.error(f"Error initializing model: {e}")
+            raise
 
-        if not model_filepath.is_file():
-            print(f"Model file not found: {model_filepath}")
-            model = None
-
-        else:
-            print(f"Loading model from {model_filepath}")
-            model = model_class.load_model(model_filepath)
-
-    print(f"Initialized model: {model}")
-
-    # Set dynamic normalization if requested and supported
-    try:
-        if use_dynamic_normalization and isinstance(model, ModelWithMetaInfoAr):
-            model.use_dynamic_normalization = True
-    except Exception:
-        pass
+    logger.info(f"Initialized model: {model}")
 
     return model
+

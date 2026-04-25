@@ -9,7 +9,7 @@
 
 ## 1. predict
 
-Сначала регистрируется в брокере и отправляет в очередь worker. В это время возвращает статус `START`. Worker работает с задачей и возвращает результат со статусом `DONE`. Если задача у брокера не завершена или удалена статус появится `PROCESSING`.
+Первый запрос регистрируется в брокере и отправляется в очередь worker. В ответ сервер возвращает статус `START` и `task_id`. Пока worker не завершил обработку, повторный запрос с этим `task_id` будет возвращать статус `PROCESSING`. После завершения задачи сервер возвращает результат со статусом `DONE`.
 
 <img alt="Date of Creation" src="https://img.shields.io/badge/Date%20of%20Creation-20%3F%3F.%3F%3F.%3F%3F,%20%3F%3F:%3F%3F%20%3FM-1565c0?style=for-the-badge" />
 <img alt="URL" src="https://img.shields.io/badge/URL-/predict-a00069?style=for-the-badge" />
@@ -34,26 +34,13 @@
 
 #### Пример 1-ого запроса
 
-- **fp_path** - путь к FP объекту
-- **model_path** - модель, которая нужна из прогнозов
-- **output_range** - диапазон для проноза (период)
-- **step** - шаг в секундах
-- **archives** - массив с полными FP путями (откуда брать данные архивов из НДЦ)
-- **clip_negatives_to_0** - обрезать до 0 данные
-- **use_dynamic_normalization** - использовать динамическую нормализацию
+- **object_reference** - путь к FP объекту
+- **model_id** - модель, которая нужна из прогнозов
 
 ```json
 {
-  "fp_path": "root/FP/PROJECT/KAZ/AKMOLA/@regions/Akmola",
-  "model_path": "prophet/watt/h/AKMOLA/@regions/Akmola/load",
-  "output_range": 48,
-  "step": 3600,
-  "archives": [
-    "root/FP/PROJECT/KAZ/@regions/AkmolaEU/Load/Pload_consume/archives/out_value",
-    "root/FP/PROJECT/KAZ/AKMOLA/@regions/Akmola/weather/temperature/archives/out_value"
-  ],
-  "clip_negatives_to_0": true,
-  "use_dynamic_normalization": false
+    "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
+    "model_id": "prophet/watt/h/AKMOLA/@regions/Akmola/load"
 }
 ```
 

@@ -16,7 +16,7 @@ def generate_timestamp(mode: str) -> Tuple[int, int]:
     Generate timestamp for the given mode.
 
     :param str mode: The mode for which to generate the timestamp. Supported
-        modes are "day" and "month".
+        modes are "short", "medium", and "long".
 
     :return: A tuple containing the start timestamp (from_tp) and end
         timestamp (to_tp) in seconds since the epoch.
@@ -27,13 +27,13 @@ def generate_timestamp(mode: str) -> Tuple[int, int]:
     d = datetime.now(tz=utc)
 
     match mode:
-        case "day":
+        case "short":
             from_tp = datetime(d.year, d.month, d.day, 0, 0, 0, 0, utc)
             to_tp = datetime(d.year, d.month, d.day + 3, 0, 0, 0, 0, utc)
-        case "month":
+        case "medium":
             from_tp = datetime(d.year, d.month, 1, 0, 0, 0, 0, utc)
             to_tp = datetime(d.year, d.month + 1, 1, 0, 0, 0, 0, utc)
-        case _:
+        case _:  # "long"
             from_tp = datetime(d.year, 1, 1, 0, 0, 0, 0, utc)
             to_tp = datetime(d.year + 1, 1, 1, 0, 0, 0, 0, utc)
 
@@ -63,8 +63,11 @@ def timestamps_to_timezoned_timestamps(
     # Apply timezone offset
     df["dt"] = df["dt"] + pd.to_timedelta(timezone_offset_hours, unit="h")
 
-    # Convert back to timestamps in ms
-    return (df["dt"].astype(np.int64) // 10**6).values
+    # Convert back to timestamps in ms.
+    # Pandas may preserve a datetime64[ms] dtype here, so dividing by 10**6
+    # can accidentally downscale values to seconds. Convert explicitly through
+    # Timestamp.timestamp() to keep millisecond precision stable.
+    return df["dt"].map(lambda dt: int(dt.timestamp() * 1000)).to_numpy(dtype=np.int64)
 
 
 def get_pred_timestamps(ts: np.ndarray, step: int, output_range: int) -> Tuple[int, np.ndarray]:

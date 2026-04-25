@@ -49,6 +49,43 @@ All necessary model metadata (training parameters, versions, and auxiliary artif
 
 Note: model files actually loaded by `init_model` are still expected (for `xgb`/`prophet`) as `xgb_model.json` or `prophet_model.json` under `/workspace/models/<type>/<dir>` — MLflow stores metadata and artifacts that complement these files and can be used to reproduce or rehydrate model directories.
 
+#### Downloading model artifacts (CLI / Python)
+
+If you need to export a model produced in MLflow into the local model layout expected by `init_model`, you can download artifacts with the mlflow CLI or the Python client. Example commands:
+
+```bash
+# using mlflow CLI (download artifacts from a run)
+# replace <run-id> and <artifact-path> with values from mlruns
+mlflow artifacts download --run-id <run-id> --path <artifact-path> -d /tmp/model_artifacts
+
+# move or copy downloaded files into the mounted models directory
+# e.g. for an xgb model:
+mkdir -p /path/to/local/models/xgb/my_model
+cp /tmp/model_artifacts/xgb_model.json /path/to/local/models/xgb/my_model/
+```
+
+Or use the Python client to programmatically fetch artifacts and write them into `/workspace/models`:
+
+```python
+from mlflow.tracking import MlflowClient
+import shutil
+from pathlib import Path
+
+client = MlflowClient("http://localhost:5050")
+run_id = "<run-id>"
+artifact_path = "<artifact-path>"  # e.g. "model"
+dst = Path("/workspace/models/xgb/my_model")
+dst.mkdir(parents=True, exist_ok=True)
+
+# download to a temporary dir and move
+local_dir = client.download_artifacts(run_id, artifact_path, dst_path="/tmp/model_artifacts")
+shutil.copytree(local_dir, dst, dirs_exist_ok=True)
+
+print(f"Model artifacts downloaded to {dst}")
+```
+
+After placing the expected files (e.g. `xgb_model.json`) under `/workspace/models/<type>/<dir>`, `init_model` will be able to load them in the running container.
+
 ## How to add a new model type (example)
 1. Add loading logic in `src/api/forecast/model.py` in `init_model`. Follow the `xgb`/`prophet` examples and name the model file consistently (`<type>_model.json`).
 2. Ensure `predict()` in `src/api/forecast/inference.py` supports the model class and returns `(preds, pred_ts, is_matching)`.
@@ -125,3 +162,25 @@ If the task is still running the server returns 202 with state `processing` and 
 ---
 
 If you'd like, I can also add a tiny script `scripts/run_local.sh` that wraps the commands above and a `scripts/example_request.sh` to run the curl example automatically. Tell me if you'd like those files added.
+
+
+Example model configuration files are under `/workspace/models` in the container. For example, an XGBoost model directory might look like:
+
+```json
+{
+    "sources": {
+        "base_fact": {
+            "url": "http://localhost:8080/api/archives?input_window=24&output_window=24&step=1",
+            "archive": ["/root/FP/PROJECT/AKMOLA/Akm_TEC-2/Pgen_sum/archives/out_value", "/root/FP/PROJECT/AKMOLA/Akm_TEC-2/Pgen_sum/archives/out_value"]
+        },
+    "weather": {
+            "url": "http://localhost:8080/weather/forecast?hours=24&lat=50.0&lon=70.0",
+            "archive": ["/root/FP/PROJECT/AKMOLA/Akm_TEC-2/Weather/archives/out_value", "/root/FP/PROJECT/AKMOLA/Akm_TEC-2/Weather/archives/out_value"]
+        }
+    }
+}
+
+
+Path to the model file is then `/Users/rustamkrikbayev/Documents/projects/forecast/local/models/AKMOLA/Akm_TEC-1/electricity/medium/prophet/v1/model.json` and `model_id` for this model would be `xgb/my_model`. The same structure applies for prophet models, just with `prophet_model.json`.
+
+Path to the model configuration file is `/Users/rustamkrikbayev/Documents/projects/forecast/local/models/AKMOLA/Akm_TEC-1/electricity/medium/prophet/v1/config.json` and contains the URLs and archive paths for the model's data sources.

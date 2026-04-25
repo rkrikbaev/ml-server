@@ -123,6 +123,30 @@ class HTTPMessages:
         content = cls.response(HTTPStatuses.SC422, f"Forecast execution error: {msg}")
         return content
 
+    @classmethod
+    def unprocessable_entity_weather(cls, msg: str = "") -> JSONResponse:
+        content = cls.response(HTTPStatuses.SC422, "Incorrect data in the dataset from weather service.")
+        if msg:
+            content["details"] = msg
+        return content
+
+    @classmethod
+    def unprocessable_entity_historical_data(cls, msg: str = "") -> JSONResponse:
+        content = cls.response(HTTPStatuses.SC422, "Incorrect data in the dataset from HISTORICAL_DATA.")
+        if msg:
+            content["details"] = msg
+        return content
+
+    @classmethod
+    def model_config_not_found(cls, model_id: str) -> JSONResponse:
+        content = cls.response(HTTPStatuses.SC422, f"Model launch aborted: config.json not found for model '{model_id}'.")
+        return content
+
+    @classmethod
+    def model_launch_aborted_no_data(cls) -> JSONResponse:
+        content = cls.response(HTTPStatuses.SC422, "Model launch aborted: no input data received from archives.")
+        return content
+
     # 500
     @classmethod
     def internal_server_error(cls, msg: str) -> JSONResponse:
@@ -139,5 +163,17 @@ class HTTPMessages:
     @classmethod
     def service_unavailable_rz(cls, msg: str = "") -> JSONResponse:
         content = cls.response(HTTPStatuses.SC503, cls.message503("RZ"))
+        if msg: content["message"] += f" Error: {msg}"
+        return content
+
+    @classmethod
+    def service_unavailable_weather(cls, msg: str = "") -> JSONResponse:
+        content = cls.response(HTTPStatuses.SC503, cls.message503("WEATHER"))
+        if msg: content["message"] += f" Error: {msg}"
+        return content
+
+    @classmethod
+    def service_unavailable_historical_data(cls, msg: str = "") -> JSONResponse:
+        content = cls.response(HTTPStatuses.SC503, cls.message503("HISTORICAL_DATA"))
         if msg: content["message"] += f" Error: {msg}"
         return content

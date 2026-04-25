@@ -19,6 +19,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/workspace/server:/workspace/lib
+      - TEST_MODE=true
+      - SCADA_STUB_ENABLED=${SCADA_STUB_ENABLED:-true}
     volumes:
       - "../local/${MODEL:-models}:/workspace/models"
       - "./src:/workspace/server"
@@ -55,6 +57,11 @@ services:
     image: ghcr.io/mlflow/mlflow:latest
     container_name: mlflow
     restart: unless-stopped
+    # Run the MLflow tracking server explicitly. The upstream image's default
+    # CMD may not start the server (it can default to `python3`), causing the
+    # container to exit with code 0. Provide an explicit command so the
+    # container stays running and serves the UI on the mapped port.
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow/mlruns
     ports:
       - "${MLFLOW_PORT:-5050}:5000"
     volumes:

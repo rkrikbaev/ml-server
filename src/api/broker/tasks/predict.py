@@ -2,71 +2,189 @@
 # 2026.03.17, 11:14 AM
 
 
-from typing import List, Dict, Any
+from typing import Dict, Any, Optional
 from numpy import maximum, isnan, array
+import numpy as np
+
+import logging
 
 from api import HTTPStatuses, HTTPMessages
+from api.collector import get_cmms_client, get_historical_data_client, get_weather_client
 from api.forecast import (
     QDS,
     init_model,
     count_input_qds,
     evaluate_input_quality,
-    predict
+    predict,
+    load_model_config,
 )
-from api.send import get_data_from_arvhives, get_data_from_rz
+logger = logging.getLogger(__name__)
+
+
+def _mode_from_step(step_ms: int) -> str:
+    """Derive forecast mode from step in milliseconds."""
+    if step_ms < 86_400_000:
+        return "short"
+    elif step_ms >= 2_419_200_000:
+        return "long"
+    return "medium"
+
+
+async def _get_weather_payload(
+    config: Any,
+    output_range: int,
+) -> Optional[Dict[str, Any]]:
+    """Fetch weather forecast when model config provides coordinates."""
+    if config.weather_lat is None or config.weather_lon is None:
+        return None
+
+    hours = config.weather_hours or max(output_range, 1)
+
+    try:
+        return await get_weather_client(getattr(config, "weather_url", None)).get_forecast(
+            lat=config.weather_lat,
+            lon=config.weather_lon,
+            hours=hours,
+            units=config.weather_units,
+        )
+    except Exception:
+        return None
+
+
+async def _get_historical_data_payload(
+    mode: str,
+    config: Any,
+    step: int,
+    online: bool,
+) -> Any:
+    """Fetch primary load history from the current historical-data client."""
+    return await get_historical_data_client().fetch_model_data(
+        mode=mode,
+        archives=config.archives,
+        step=step,
+        online=online,
+        historical_data_url=config.historical_data_url,
+        request_overrides=config.historical_data_request_overrides,
+    )
+
+
+async def _get_planned_adjustments(
+    mode: str,
+    config: Any,
+    step_ms: int,
+) -> Optional[Dict[int, float]]:
+    """Fetch CMMS planned adjustments as {timestamp_ms: reduction_value}."""
+    if not config.cmms_url:
+        return None
+
+    try:
+        payload = await get_cmms_client().fetch_planned_series(
+            mode=mode,
+            step_ms=step_ms,
+            cmms_url=config.cmms_url,
+            request_overrides=config.cmms_request_overrides,
+        )
+    except Exception as error:
+        logger.warning("CMMS planned-data fetch failed for model_id source=%s: %s", config.cmms_url, error)
+        return None
+
+    if isinstance(payload, dict):
+        if payload.get("status", 0) >= 400:
+            logger.warning("CMMS planned-data source unavailable: %s", payload)
+            return None
+        if payload:
+            logger.info("CMMS planned-data loaded from %s points=%s", config.cmms_url, len(payload))
+            return payload
+
+    return None
+
+
+def _apply_planned_adjustments(
+    preds: Any,
+    pred_ts: Any,
+    planned_adjustments: Optional[Dict[int, float]],
+) -> tuple[Any, int]:
+    """Apply planned reductions to forecast values by exact timestamp match."""
+    if not planned_adjustments:
+        return preds, 0
+
+    adjusted = np.array(preds, copy=True, dtype=float)
+    applied = 0
+
+    for idx, ts in enumerate(pred_ts):
+        reduction = planned_adjustments.get(int(ts))
+        if reduction is None:
+            continue
+
+        adjusted[idx] = adjusted[idx] - float(reduction)
+        applied += 1
+
+    return adjusted, applied
 
 
 async def logic(
-    mode: str,
-    model_path: str,
-    archives: List[str],
-    step: int,
-    output_range: int,
+    model_id: str,
     online: bool,
-    clip_negatives_to_0: bool,
-    use_dynamic_normalization: bool
 ) -> Dict[str, Any]:
     """
     The core logic of the predict API.
 
-    :param str mode: Mode of forecast.
-    :param str model_path: Path to model directory.
-    :param List[str] archives: List of archives.
-    :param int step: Step in milliseconds.
-    :param int output_range: Output range in milliseconds.
-    :param bool online: Whether to use online forecast.
-    :param bool clip_negatives_to_0: Whether to clip negative predictions to
-        0.
-    :param bool use_dynamic_normalization: Whether to use dynamic
-        normalization.
+    Loads model configuration from config.json, fetches input data from NDC,
+    and runs the forecast model.
 
-    :return: Result for api_predict.
+    :param str model_id: Relative path to the model under /workspace/models,
+        or "none" for online (train-on-request) mode.
+    :param bool online: True when model_id == "none".
+
+    :return: Result dict for api_predict.
     :rtype: Dict[str, Any]
     """
 
     try:
-        # NDC
-        # output = await get_data_from_arvhives(mode, archives, step, online)
-        # if isinstance(output, dict): return output
-        output = ([array([1774569600000, 1774573200000, 1774576800000, 1774580400000, 1774584000000, 1774587600000, 1774591200000, 1774594800000, 1774598400000, 1774602000000, 1774605600000, 1774609200000, 1774612800000, 1774616400000, 1774620000000, 1774623600000, 1774627200000, 1774630800000, 1774634400000, 1774638000000, 1774641600000, 1774645200000, 1774648800000, 1774652400000, 1774656000000, 1774659600000, 1774663200000, 1774666800000, 1774670400000, 1774674000000, 1774677600000, 1774681200000, 1774684800000, 1774688400000, 1774692000000, 1774695600000, 1774699200000, 1774702800000, 1774706400000, 1774710000000, 1774713600000, 1774717200000, 1774720800000, 1774724400000, 1774728000000, 1774731600000, 1774735200000, 1774738800000, 1774742400000, 1774746000000, 1774749600000, 1774753200000, 1774756800000, 1774760400000, 1774764000000, 1774767600000, 1774771200000, 1774774800000, 1774778400000, 1774782000000, 1774785600000, 1774789200000, 1774792800000, 1774796400000, 1774800000000, 1774803600000, 1774807200000, 1774810800000, 1774814400000, 1774818000000, 1774821600000, 1774825200000])], [array([660.2418753 , 666.3673212 , 665.28395778, 721.18699394, 796.10682151, 941.93415392, 925.9154126 , 936.20440792, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019, 919.06483019])], [array([64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64])])
+        # --- Model config ---
+        try:
+            config = load_model_config(model_id)
+        except Exception:
+            return HTTPMessages.model_config_not_found(model_id)
 
-        # Get: timestamp, value, qds
+        step = config.step * 1000                                  # seconds → ms
+        output_range = config.output_range * 3_600_000 // step    # hours → steps
+        mode = _mode_from_step(step)
+
+        # --- HISTORICAL DATA ---
+        output = await _get_historical_data_payload(mode, config, step, online)
+        if isinstance(output, dict):
+            return output
+
         timestamp, value, qds = output[0], output[1], output[2]
         del output
 
-        # Model Initialization
+        # Guard: abort if NDC returned no data
+        if not timestamp or not value or len(timestamp[0]) == 0:
+            return HTTPMessages.model_launch_aborted_no_data()
 
-        # TODO: Какова цель класса 'SbreModel'? Пуста и входит в инициализатор 'init_model'
-        model = init_model(model_path, step, use_dynamic_normalization)
+        # --- Model initialization ---
+        model = init_model(model_id, step, config.use_dynamic_normalization)
 
-        # RZ
-        mes = model_path.split("/")[3] if model_path else None
-        df_rz = await get_data_from_rz(model, mes, timestamp[0], step, output_range)
-        if isinstance(df_rz, dict): return df_rz
+        # --- Weather ---
+        weather_data = await _get_weather_payload(config, output_range)
+        if weather_data is not None:
+            weather_hourly = weather_data.get("hourly") if isinstance(weather_data, dict) else None
+            logger.info(
+                "Weather payload loaded for model_id=%s from %s lat=%s lon=%s hours=%s points=%s",
+                model_id,
+                getattr(config, "weather_url", None),
+                config.weather_lat,
+                config.weather_lon,
+                config.weather_hours or max(output_range, 1),
+                len(weather_hourly) if isinstance(weather_hourly, list) else 0,
+            )
 
-        # Primary
+        # --- RZ / CMMS ---
+        df_rz = None
+        logger.debug("RZ collector is not wired in the current pipeline; continuing without external RZ data")
 
-        # TODO: не всегда отрабатывает функционал 'predict'
+        # --- Forecast ---
         try:
             preds, pred_ts, is_matching = predict(
                 y=value,
@@ -75,54 +193,65 @@ async def logic(
                 step=step,
                 output_range=output_range,
                 online=online,
-                df_rz_melt=df_rz
+                df_rz_melt=df_rz,
+                weather_data=weather_data,
             )
-        except Exception as e:  # 422
+        except Exception as e:
             return HTTPMessages.unprocessable_entity_forecast(str(e))
 
-        # QDS Assessment
+        # --- CMMS planned postprocessing ---
+        planned_adjustments = await _get_planned_adjustments(mode, config, step)
+        preds, planned_applied_count = _apply_planned_adjustments(preds, pred_ts, planned_adjustments)
+        if planned_applied_count:
+            logger.info(
+                "Applied CMMS planned reductions for model_id=%s points=%s",
+                model_id,
+                planned_applied_count,
+            )
+
+        # --- QDS assessment ---
         critical_freq, non_critical_freq = count_input_qds(timestamp, value, qds)
         input_qds, input_reason = evaluate_input_quality(critical_freq, non_critical_freq)
 
         return HTTPMessages.ok_done(
-            result(
+            _build_result(
                 model,
                 is_matching,
                 input_qds,
                 input_reason,
-                clip_negatives_to_0,
+                config.clip_negatives_to_0,
                 preds,
-                pred_ts
+                pred_ts,
+                planned_applied_count,
             )
         )
 
-    except Exception as e:  # 500
+    except Exception as e:
         return HTTPMessages.internal_server_error(str(e))
 
 
-def result(
+def _build_result(
     model: Any,
     is_matching: bool,
     input_qds: int,
     input_reason: str,
     clip_negatives_to_0: bool,
     preds: Any,
-    pred_ts: Any
+    pred_ts: Any,
+    planned_applied_count: int,
 ) -> Dict[str, Any]:
     """
-    Return result for api_predict.
+    Build the final forecast result payload.
 
-    :param Any model: Model instance.
-    :param bool is_matching: Whether the input data matches the training
-        distribution.
-    :param int input_qds: Input QDS.
-    :param str input_reason: Input reason.
-    :param bool clip_negatives_to_0: Whether to clip negative predictions to
-        0.
-    :param Any preds: Predictions.
-    :param Any pred_ts: Prediction timestamps.
+    :param Any model: Initialized model instance (or None if loading failed).
+    :param bool is_matching: Whether input data matches the training distribution.
+    :param int input_qds: QDS score for the input data.
+    :param str input_reason: Human-readable reason for the input QDS.
+    :param bool clip_negatives_to_0: Whether to floor predictions at 0.
+    :param Any preds: Raw predictions array.
+    :param Any pred_ts: Prediction timestamps array.
 
-    :return: Result for api_predict.
+    :return: Forecast result payload.
     :rtype: Dict[str, Any]
     """
 
@@ -130,40 +259,34 @@ def result(
     status = HTTPStatuses.SC200
     reason = ""
 
-    # Model
-    if model is None:  # 422
+    if model is None:
         base_pred_qds = QDS.INVALID
         status = HTTPStatuses.SC422
         reason = f"Model loading error, using online model (QDS={base_pred_qds})"
 
-    # Primary
-    if not is_matching and status == HTTPStatuses.SC200:  # 422
+    if not is_matching and status == HTTPStatuses.SC200:
         base_pred_qds = max(base_pred_qds, QDS.NOT_TOPICAL)
         status = HTTPStatuses.SC422
         reason = f"Input data does not match training distribution (QDS={base_pred_qds})"
 
-    # Input issues (only if no higher-priority status)
     if status == HTTPStatuses.SC200 and input_qds:
         status = input_qds
         reason = input_reason
 
-    # Final QDS
     final_qds = max(base_pred_qds, input_qds)
 
-    # Post-Processing
     if clip_negatives_to_0:
         preds = maximum(preds, 0)
 
-    result = [
+    output = [
         [int(ts), None if isnan(p) else round(float(p), 1), int(final_qds)]
         for ts, p in zip(pred_ts, preds)
     ]
 
-    # Finalize response
-    msg = "" if status == HTTPStatuses.SC200 else reason
     return {
-        "message": msg,
-        "output": result,
+        "message": "" if status == HTTPStatuses.SC200 else reason,
+        "output": output,
         "quality": final_qds,
-        "model_confidence": 1.0
+        "model_confidence": 1.0,
+        "planned_adjustments_applied": planned_applied_count,
     }

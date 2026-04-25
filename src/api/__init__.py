@@ -1,8 +1,8 @@
 from .config import (
     REDIS_URL,
     REDIS_TIMEOUT,
-    NDC_URLS,
-    RZ_URL,
+    HISTORICAL_DATA_URLS,
+    CMMS_URL,
     HEADERS,
     CLIENT_TIMEOUT_ONE,
     CLIENT_TIMEOUT_ALL,
@@ -15,8 +15,8 @@ from .message import HTTPState, HTTPStatuses, HTTPMessages
 __all__ = [
     "REDIS_URL",
     "REDIS_TIMEOUT",
-    "NDC_URLS",
-    "RZ_URL",
+    "HISTORICAL_DATA_URLS",
+    "CMMS_URL",
     "HEADERS",
     "CLIENT_TIMEOUT_ONE",
     "CLIENT_TIMEOUT_ALL",

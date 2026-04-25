@@ -1,0 +1,21 @@
+artifact_path: /Users/rustamkrikbayev/Documents/projects/forecast/ml-server/mlruns/1/models/m-eca0f3c25d1c4b33a76f932a89452bac/artifacts
+flavors:
+  prophet:
+    code: null
+    data: model.pr
+    model_type: Prophet
+    prophet_version: 1.3.0
+  python_function:
+    data: model.pr
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.prophet
+    python_version: 3.13.7
+mlflow_version: 3.11.1
+model_id: m-eca0f3c25d1c4b33a76f932a89452bac
+model_size_bytes: 198551
+model_uuid: m-eca0f3c25d1c4b33a76f932a89452bac
+prompts: null
+run_id: aef36bda1fe340acaccc921af105f3eb
+utc_time_created: '2026-04-19 21:04:17.739817'

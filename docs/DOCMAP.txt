@@ -1,0 +1,213 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                     📚 DOCUMENTATION MAP — ml-server/docs                  ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─ START HERE ─────────────────────────────────────────────────────────────┐
+│                                                                            │
+│  README.md (8.4 KB)              ◄── Quick navigation guide               │
+│  ├─ 🚀 Quick start scenarios      └─ Где что искать по задачам            │
+│  ├─ 🎓 Обучение (рекомендуемый порядок)                                 │
+│  └─ 📞 FAQ                                                                │
+│                                                                            │
+│  INDEX.md (13 KB)                ◄── Full documentation index             │
+│  ├─ 🗂️ Структура и описания      └─ Подробное описание каждого файла     │
+│  ├─ 🎯 Выбор по задаче                                                   │
+│  ├─ 📊 Карта зависимостей                                                │
+│  └─ 💾 Версионирование                                                   │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ CORE DOCUMENTATION ─────────────────────────────────────────────────────┐
+│                                                                            │
+│  ✅ MODEL_STORAGE_STRUCTURE.md (15 KB)                                   │
+│     └─ Структура хранения моделей, .env, Docker, MLflow, интерфейс      │
+│     └─ Когда: Развёртывание, добавление моделей                         │
+│                                                                            │
+│  ✅ COMMON_MODEL_INTERFACE.md (13 KB)                                    │
+│     └─ Подробное руководство по единому интерфейсу моделей              │
+│     └─ Когда: Добавление новой модели, интеграция                       │
+│                                                                            │
+│  ✅ ARCHITECTURE_DIAGRAM.txt (16 KB)                                     │
+│     └─ ASCII диаграммы архитектуры, data flow, иерархия слоёв           │
+│     └─ Когда: Нужна визуальная архитектура                              │
+│                                                                            │
+│  ✅ QUICKSTART.md (6 KB)                                                 │
+│     └─ 5-минутный старт, примеры кода, troubleshooting                  │
+│     └─ Когда: Быстрое решение, quick reference                          │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ REFERENCE & STATUS ──────────────────────────────────────────────────────┐
+│                                                                            │
+│  ✅ IMPLEMENTATION_COMPLETE.md (12 KB)                                   │
+│     └─ Отчет о выполненной работе, чек-листы, статус                    │
+│     └─ Когда: Нужен отчет stakeholder'ам, проверка статуса              │
+│                                                                            │
+│  ✅ FILES_MANIFEST.txt (8.4 KB)                                          │
+│     └─ Инвентарь файлов, зависимости, размеры, imports                  │
+│     └─ Когда: Нужно найти конкретный файл или зависимость              │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ SPECIALIZED ──────────────────────────────────────────────────────────────┐
+│                                                                            │
+│  ТЗ_ML_Infrastructure.md                                                 │
+│     └─ Техническое задание, требования, функциональные требования       │
+│     └─ Когда: Нужны original requirements                                │
+│                                                                            │
+│  MEMORIES_MLFLOW.md                                                      │
+│     └─ Заметки и примеры работы с MLflow                                │
+│     └─ Когда: Вопросы по MLflow, model logging                          │
+│                                                                            │
+│  UNIFIED.md                                                              │
+│     └─ Унификация интерфейсов и общие соглашения                        │
+│     └─ Когда: Нужно знать код стайл и соглашения                        │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ API DOCUMENTATION ───────────────────────────────────────────────────────┐
+│                                                                            │
+│  📂 API/                                                                  │
+│  ├─ MAIN.md              ◄─ Main API reference                           │
+│  ├─ FUNCTIONS.md         ◄─ List of all functions                        │
+│  ├─ CONFIG.md            ◄─ Configuration (env vars, settings)           │
+│  ├─ MESSAGES.md          ◄─ Request/Response message formats             │
+│  ├─ 📂 schema/           ◄─ JSON Schemas for validation                  │
+│  └─ 📂 broker/           ◄─ Message brokers (Redis, Kafka, etc.)         │
+│                                                                            │
+│  Когда: Разработка API endpoints, интеграция с другими сервисами       │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         📋 QUICK REFERENCE TABLE                           ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌────────────────┬──────────────────────────────────────────────────────────┐
+│ Задача         │ Документ                                                 │
+├────────────────┼──────────────────────────────────────────────────────────┤
+│ Новичок        │ README.md (5 мин) → QUICKSTART.md → base_interface.py   │
+│ Архитектура    │ ARCHITECTURE_DIAGRAM.txt (10 мин)                       │
+│ Хранение       │ MODEL_STORAGE_STRUCTURE.md → "Файловая организация"     │
+│ Новая модель   │ QUICKSTART.md → COMMON_MODEL_INTERFACE.md → adapters.py│
+│ Интеграция     │ integration_example.py + ARCHITECTURE_DIAGRAM.txt       │
+│ MLflow         │ MODEL_STORAGE_STRUCTURE.md + MEMORIES_MLFLOW.md         │
+│ API            │ API/ папка (MAIN.md, FUNCTIONS.md, MESSAGES.md)        │
+│ Статус проекта │ IMPLEMENTATION_COMPLETE.md                              │
+│ Инвентарь      │ FILES_MANIFEST.txt                                      │
+│ Requirements   │ ТЗ_ML_Infrastructure.md                                 │
+└────────────────┴──────────────────────────────────────────────────────────┘
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                      🎯 RECOMMENDED READING ORDER                          ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+OPTION A: FAST TRACK (15 minutes)
+  1. README.md (navigation)
+  2. QUICKSTART.md (code examples)
+  3. base_interface.py (read code)
+  ✅ Ready to code!
+
+OPTION B: STANDARD (45 minutes)
+  1. README.md (overview)
+  2. QUICKSTART.md (quick start)
+  3. ARCHITECTURE_DIAGRAM.txt (understand design)
+  4. COMMON_MODEL_INTERFACE.md (detailed interface)
+  5. adapters.py (code patterns)
+  ✅ Ready for serious work!
+
+OPTION C: THOROUGH (2 hours)
+  1. ТЗ_ML_Infrastructure.md (requirements)
+  2. ARCHITECTURE_DIAGRAM.txt (design)
+  3. MODEL_STORAGE_STRUCTURE.md (storage & config)
+  4. COMMON_MODEL_INTERFACE.md (interface details)
+  5. FILES_MANIFEST.txt (file inventory)
+  6. IMPLEMENTATION_COMPLETE.md (status & checklist)
+  7. Code review: base_interface.py + adapters.py + integration_example.py
+  ✅ Understand everything!
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                         🔍 SEARCH BY KEYWORD                              ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+PredictionInput         → base_interface.py, COMMON_MODEL_INTERFACE.md
+ProphetModelAdapter     → adapters.py, QUICKSTART.md, COMMON_MODEL_INTERFACE.md
+XGBoostModelAdapter     → adapters.py, QUICKSTART.md
+.env                    → MODEL_STORAGE_STRUCTURE.md, FILES_MANIFEST.txt
+PYTHONPATH              → MODEL_STORAGE_STRUCTURE.md, ARCHITECTURE_DIAGRAM.txt
+Docker Compose          → MODEL_STORAGE_STRUCTURE.md
+MLflow                  → MODEL_STORAGE_STRUCTURE.md, MEMORIES_MLFLOW.md
+FastAPI                 → integration_example.py, ARCHITECTURE_DIAGRAM.txt
+Adapter Pattern         → ARCHITECTURE_DIAGRAM.txt, COMMON_MODEL_INTERFACE.md
+Factory Pattern         → adapters.py, ARCHITECTURE_DIAGRAM.txt
+Data Flow               → ARCHITECTURE_DIAGRAM.txt (DATA FLOW EXAMPLE)
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║                     ✅ DOCUMENTATION STATUS                               ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Core Docs:
+  ✅ README.md                  (v1.0) - Navigation guide
+  ✅ INDEX.md                   (v1.0) - Full documentation index
+  ✅ MODEL_STORAGE_STRUCTURE.md (v1.5) - Storage & config
+  ✅ COMMON_MODEL_INTERFACE.md  (v1.0) - Interface details
+  ✅ ARCHITECTURE_DIAGRAM.txt   (v1.0) - Visual architecture
+  ✅ QUICKSTART.md              (v1.0) - Quick reference
+
+Reference:
+  ✅ IMPLEMENTATION_COMPLETE.md (v1.0) - Status report
+  ✅ FILES_MANIFEST.txt         (v1.0) - File inventory
+  ✅ ТЗ_ML_Infrastructure.md    (v1.0) - Requirements
+  ✅ MEMORIES_MLFLOW.md         (v1.0) - MLflow notes
+  ✅ UNIFIED.md                 (v1.0) - Conventions
+
+API Docs:
+  ✅ API/MAIN.md                (v1.0) - Main API reference
+  ✅ API/FUNCTIONS.md           (v1.0) - Function list
+  ✅ API/CONFIG.md              (v1.0) - Configuration
+  ✅ API/MESSAGES.md            (v1.0) - Message formats
+
+Code:
+  ✅ base_interface.py          (v1.0) - Core interface
+  ✅ adapters.py                (v1.0) - Model adapters
+  ✅ integration_example.py      (v1.0) - FastAPI example
+  ✅ test_model_interface.py     (v1.0) - Test suite
+
+Total: 20+ documents, ~200 KB, ✅ Complete
+
+╔════════════════════════════════════════════════════════════════════════════╗
+║              📞 Need Help? Check the Right Document                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+Q: Where do I start?
+A: README.md → "Quick start scenarios"
+
+Q: How do I add a new model?
+A: QUICKSTART.md → "Add New Model Type" section
+
+Q: I need API documentation
+A: API/MAIN.md or API/FUNCTIONS.md
+
+Q: What files are in the project?
+A: FILES_MANIFEST.txt or MODEL_STORAGE_STRUCTURE.md
+
+Q: Where are the models stored?
+A: MODEL_STORAGE_STRUCTURE.md → "Файловая организация"
+
+Q: How does the interface work?
+A: base_interface.py (code) + COMMON_MODEL_INTERFACE.md (explanation)
+
+Q: I found a bug/error
+A: QUICKSTART.md → "Troubleshooting" table
+
+Q: I need to present to stakeholders
+A: IMPLEMENTATION_COMPLETE.md
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Last Updated: 2024-04-19
+Version: 1.0
+Status: ✅ Complete & Ready
+Location: /Users/rustamkrikbayev/Documents/projects/forecast/ml-server/docs/
+
+═══════════════════════════════════════════════════════════════════════════════
