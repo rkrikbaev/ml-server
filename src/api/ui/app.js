@@ -3,1195 +3,1135 @@ import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import htm from "https://esm.sh/htm@3.1.1";
 
 const html = htm.bind(React.createElement);
-const STORAGE_KEY = "forecast-wizard-state-v1";
-const STEP_TITLES = [
-  "Источник данных",
-  "Редактор / очистка",
-  "Модель",
-  "Запуск",
-  "Результаты",
+
+const PAGE_SIZE = 20;
+const TAB_ITEMS = ["Tasks", "Workers", "Queues", "Models"];
+const STATE_CHIPS = [
+  { key: "all", label: "All" },
+  { key: "start", label: "start" },
+  { key: "processing", label: "processing" },
+  { key: "done_success", label: "done ✓" },
+  { key: "done_error", label: "done ✗" },
+      { key: "expired", label: "expired" },
+
 ];
-const MODEL_LIST = ["Prophet", "ARIMA", "XGBoost"];
 
-const REQUEST_STATS_DEFAULT = {
-  total: 0,
-  success: 0,
-  failed: 0,
-  totalDurationMs: 0,
-  lastDurationMs: 0,
-  byType: {
-    upload: 0,
-    autofix: 0,
-    modelRun: 0,
-    modelList: 0,
-    modelConfig: 0,
-  },
-};
-
-function sleep(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function parseCsvLine(line) {
-  const result = [];
-  let value = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    const next = line[i + 1];
-    if (char === '"') {
-      if (inQuotes && next === '"') {
-        value += '"';
-        i += 1;
-      } else {
-        inQuotes = !inQuotes;
+    function formatClock(value) {
+      if (!value) {
+        return "--:--:--";
       }
-      continue;
+      return new Date(value).toLocaleTimeString("ru-RU");
     }
 
-    if (char === "," && !inQuotes) {
-      result.push(value.trim());
-      value = "";
-      continue;
+    function formatDateTime(value) {
+      if (!value) {
+        return "--";
+      }
+      return new Date(value).toLocaleString("ru-RU");
     }
 
-    value += char;
-  }
-
-  result.push(value.trim());
-  return result;
-}
-
-function parseCsv(text) {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (lines.length < 2) {
-    throw new Error("CSV must include header and at least one row");
-  }
-
-  const headers = parseCsvLine(lines[0]);
-  const rows = lines.slice(1).map((line, index) => {
-    const cols = parseCsvLine(line);
-    const row = { __row_id: index };
-    headers.forEach((header, i) => {
-      row[header] = cols[i] ?? "";
-    });
-    return row;
-  });
-
-  return { headers, rows };
-}
-
-function toNumber(value) {
-  const num = Number(String(value).replace(",", "."));
-  return Number.isFinite(num) ? num : null;
-}
-
-function computeMedian(values) {
-  if (!values.length) {
-    return 0;
-  }
-  const sorted = [...values].sort((a, b) => a - b);
-  const half = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[half] : (sorted[half - 1] + sorted[half]) / 2;
-}
-
-function quantile(values, q) {
-  if (!values.length) {
-    return 0;
-  }
-  const sorted = [...values].sort((a, b) => a - b);
-  const pos = (sorted.length - 1) * q;
-  const base = Math.floor(pos);
-  const rest = pos - base;
-  if (sorted[base + 1] !== undefined) {
-    return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
-  }
-  return sorted[base];
-}
-
-function computeColumnStats(rows, headers) {
-  const stats = {};
-
-  headers.forEach((header) => {
-    const values = rows
-      .map((row) => toNumber(row[header]))
-      .filter((value) => value !== null);
-
-    if (!values.length) {
-      return;
+    function formatRelative(value) {
+      if (!value) {
+        return "--";
+      }
+      const diffSeconds = Math.max(Math.floor((Date.now() - new Date(value).getTime()) / 1000), 0);
+      if (diffSeconds < 60) {
+        return `${diffSeconds}s ago`;
+      }
+      const diffMinutes = Math.floor(diffSeconds / 60);
+      if (diffMinutes < 60) {
+        return `${diffMinutes}m ago`;
+      }
+      const diffHours = Math.floor(diffMinutes / 60);
+      if (diffHours < 24) {
+        return `${diffHours}h ago`;
+      }
+      return `${Math.floor(diffHours / 24)}d ago`;
     }
 
-    const mean = values.reduce((acc, val) => acc + val, 0) / values.length;
-    const variance = values.reduce((acc, val) => acc + (val - mean) ** 2, 0) / values.length;
-    const std = Math.sqrt(variance);
-    stats[header] = {
-      mean,
-      std,
-      median: computeMedian(values),
-      p05: quantile(values, 0.05),
-      p95: quantile(values, 0.95),
-    };
-  });
-
-  return stats;
-}
-
-function detectDateColumn(headers, rows) {
-  for (const header of headers) {
-    const sample = rows.slice(0, 10).map((row) => row[header]);
-    const parsed = sample.filter((value) => !Number.isNaN(new Date(value).getTime()));
-    if (parsed.length >= Math.max(3, Math.floor(sample.length * 0.6))) {
-      return header;
-    }
-  }
-  return null;
-}
-
-function buildSeries(rows, target, rangeStart, rangeEnd) {
-  const safeStart = clamp(rangeStart, 0, rows.length - 1);
-  const safeEnd = clamp(rangeEnd, safeStart, rows.length - 1);
-  return rows
-    .slice(safeStart, safeEnd + 1)
-    .map((row, index) => {
-      const value = toNumber(row[target]);
-      return {
-        i: safeStart + index,
-        value,
-      };
-    })
-    .filter((point) => point.value !== null);
-}
-
-function renderMiniPath(series, width, height, pad = 14) {
-  if (!series.length) {
-    return "";
-  }
-  const values = series.map((point) => point.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = Math.max(max - min, 1);
-
-  return series
-    .map((point, idx) => {
-      const x = pad + (idx / Math.max(series.length - 1, 1)) * (width - pad * 2);
-      const y = height - pad - ((point.value - min) / span) * (height - pad * 2);
-      return `${x},${y}`;
-    })
-    .join(" ");
-}
-
-function calcMetrics(actual, predicted) {
-  const n = Math.min(actual.length, predicted.length);
-  if (!n) {
-    return {
-      mape: 0,
-      rmse: 0,
-      mae: 0,
-      r2: 0,
-      maxDeviation: 0,
-      score: 0,
-    };
-  }
-
-  let absPct = 0;
-  let sq = 0;
-  let abs = 0;
-  let maxDev = 0;
-
-  for (let i = 0; i < n; i += 1) {
-    const error = predicted[i] - actual[i];
-    const denom = Math.max(Math.abs(actual[i]), 1e-6);
-    absPct += Math.abs(error) / denom;
-    sq += error ** 2;
-    abs += Math.abs(error);
-    maxDev = Math.max(maxDev, Math.abs(error));
-  }
-
-  const mean = actual.reduce((acc, value) => acc + value, 0) / n;
-  const ssTot = actual.reduce((acc, value) => acc + (value - mean) ** 2, 0);
-  const ssRes = actual.reduce((acc, value, i) => acc + (value - predicted[i]) ** 2, 0);
-
-  const mape = (absPct / n) * 100;
-  const rmse = Math.sqrt(sq / n);
-  const mae = abs / n;
-  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
-  const scale = Math.max(...actual.map((value) => Math.abs(value)), 1);
-  const penalty = mape * 0.45 + (rmse / scale) * 22 + (mae / scale) * 18 + (1 - r2) * 10 + (maxDev / scale) * 10;
-  const score = clamp(100 - penalty, 0, 100);
-
-  return {
-    mape,
-    rmse,
-    mae,
-    r2,
-    maxDeviation: maxDev,
-    score,
-  };
-}
-
-function forecastWithModel(model, train, horizon) {
-  const last = train[train.length - 1] ?? 0;
-  if (model === "Prophet") {
-    const window = Math.min(24, train.length);
-    const tail = train.slice(-window);
-    const avg = tail.reduce((acc, value) => acc + value, 0) / Math.max(tail.length, 1);
-    const trend = train.length > 8 ? (train[train.length - 1] - train[train.length - 8]) / 8 : 0;
-    return Array.from({ length: horizon }, (_, idx) => avg + trend * (idx + 1));
-  }
-
-  if (model === "ARIMA") {
-    const diffs = [];
-    for (let i = 1; i < train.length; i += 1) {
-      diffs.push(train[i] - train[i - 1]);
-    }
-    const drift = diffs.length ? diffs.reduce((acc, value) => acc + value, 0) / diffs.length : 0;
-    return Array.from({ length: horizon }, (_, idx) => last + drift * (idx + 1));
-  }
-
-  const short = train.slice(-6);
-  const long = train.slice(-18);
-  const shortMean = short.reduce((acc, value) => acc + value, 0) / Math.max(short.length, 1);
-  const longMean = long.reduce((acc, value) => acc + value, 0) / Math.max(long.length, 1);
-  const boost = (shortMean - longMean) * 0.6;
-  return Array.from({ length: horizon }, (_, idx) => last + boost * ((idx + 1) / Math.max(horizon, 1)));
-}
-
-function pointQuality(absPctError) {
-  if (absPctError <= 5) {
-    return "good";
-  }
-  if (absPctError <= 15) {
-    return "warn";
-  }
-  return "bad";
-}
-
-function nowTime() {
-  return new Date().toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function formatMs(value) {
-  return `${Math.round(value)} ms`;
-}
-
-function App() {
-  const [step, setStep] = useState(1);
-  const [source, setSource] = useState(() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      return parsed || {
-        fileName: "",
-        headers: [],
-        rows: [],
-        target: "",
-        regressors: [],
-        rangeStart: 0,
-        rangeEnd: 0,
-        horizon: 24,
-        dateColumn: null,
-      };
-    } catch (_error) {
-      return {
-        fileName: "",
-        headers: [],
-        rows: [],
-        target: "",
-        regressors: [],
-        rangeStart: 0,
-        rangeEnd: 0,
-        horizon: 24,
-        dateColumn: null,
-      };
-    }
-  });
-  const [cleanRows, setCleanRows] = useState(() => source.rows || []);
-  const [cleaningMethod, setCleaningMethod] = useState("median");
-  const [cleanConfirmed, setCleanConfirmed] = useState(false);
-  const [selectedModels, setSelectedModels] = useState(["Prophet", "ARIMA"]);
-  const [params, setParams] = useState({
-    prophet: { changepoint: 0.15, seasonality: 0.4, interval: 0.8 },
-    arima: { p: 2, d: 1, q: 1 },
-    xgb: { depth: 5, learningRate: 0.08, estimators: 200 },
-    validation: { split: 20, folds: 3, metric: "MAPE" },
-  });
-  const [runs, setRuns] = useState({});
-  const [runLogs, setRunLogs] = useState([]);
-  const [runInProgress, setRunInProgress] = useState(false);
-  const [requestStats, setRequestStats] = useState(REQUEST_STATS_DEFAULT);
-  const [registeredModels, setRegisteredModels] = useState([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelsError, setModelsError] = useState("");
-  const [selectedModelId, setSelectedModelId] = useState("");
-  const [selectedModelConfig, setSelectedModelConfig] = useState(null);
-
-  useMemo(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(source));
-    return null;
-  }, [source]);
-
-  const rowCount = source.rows.length;
-  const rangeSeries = useMemo(
-    () => (source.target ? buildSeries(cleanRows, source.target, source.rangeStart, source.rangeEnd) : []),
-    [source.target, source.rangeStart, source.rangeEnd, cleanRows],
-  );
-  const previewPath = useMemo(() => renderMiniPath(rangeSeries, 820, 220), [rangeSeries]);
-  const colStats = useMemo(() => computeColumnStats(cleanRows, source.headers), [cleanRows, source.headers]);
-
-  const canStep2 = rowCount > 0 && !!source.target;
-  const canStep3 = canStep2 && cleanConfirmed;
-  const canStep4 = canStep3 && selectedModels.length > 0;
-  const canStep5 = Object.values(runs).some((item) => item.status === "done");
-
-  function switchStep(next) {
-    if (next === 2 && !canStep2) {
-      return;
-    }
-    if (next === 3 && !canStep3) {
-      return;
-    }
-    if (next === 4 && !canStep4) {
-      return;
-    }
-    if (next === 5 && !canStep5) {
-      return;
-    }
-    setStep(next);
-  }
-
-  function addLog(level, message) {
-    setRunLogs((current) => [
-      { ts: nowTime(), level, message },
-      ...current,
-    ].slice(0, 200));
-  }
-
-  function trackRequest(type, startedAt, ok) {
-    const durationMs = performance.now() - startedAt;
-    setRequestStats((current) => ({
-      ...current,
-      total: current.total + 1,
-      success: current.success + (ok ? 1 : 0),
-      failed: current.failed + (ok ? 0 : 1),
-      totalDurationMs: current.totalDurationMs + durationMs,
-      lastDurationMs: durationMs,
-      byType: {
-        ...current.byType,
-        [type]: (current.byType[type] || 0) + 1,
-      },
-    }));
-  }
-
-  async function onFileUpload(event) {
-    const startedAt = performance.now();
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
+    function formatSeconds(value) {
+      if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return "--";
+      }
+      return `${Number(value).toFixed(1)}s`;
     }
 
-    try {
-      const text = await file.text();
-      const parsed = parseCsv(text);
-      const dateColumn = detectDateColumn(parsed.headers, parsed.rows);
-      const target = parsed.headers[1] || parsed.headers[0] || "";
+    function truncateMiddle(value, head = 8, tail = 4) {
+      if (!value || value.length <= head + tail + 1) {
+        return value || "--";
+      }
+      return `${value.slice(0, head)}…${value.slice(-tail)}`;
+    }
 
-      setSource({
-        fileName: file.name,
-        headers: parsed.headers,
-        rows: parsed.rows,
-        target,
-        regressors: parsed.headers.filter((header) => header !== target).slice(0, 2),
-        rangeStart: 0,
-        rangeEnd: Math.max(parsed.rows.length - 1, 0),
-        horizon: 24,
-        dateColumn,
+    function classForDisplayState(state) {
+      if (state === "start") {
+        return "state-start";
+      }
+      if (state === "processing") {
+        return "state-processing";
+      }
+      if (state === "done 200") {
+        return "state-done-success";
+      }
+      if (state.startsWith("done ")) {
+        return "state-done-error";
+      }
+      if (state === "expired") {
+        return "state-expired";
+      }
+      return "state-default";
+    }
+
+    function progressPercent(task, avgRuntime) {
+      if (task.display_state !== "processing") {
+        return 0;
+      }
+      const baseline = Math.max(avgRuntime || 90, 15);
+      return Math.max(8, Math.min(96, ((task.runtime_s || 0) / baseline) * 100));
+    }
+
+    function formatUptime(totalSeconds) {
+      const safe = Math.max(Number(totalSeconds) || 0, 0);
+      const hours = Math.floor(safe / 3600);
+      const minutes = Math.floor((safe % 3600) / 60);
+      return `${hours}h ${minutes}m`;
+    }
+
+    function sourceLabel(source) {
+      return source === "scada" ? "S" : source === "weather" ? "W" : "C";
+    }
+
+    function sourceName(source) {
+      return source === "scada" ? "SCADA" : source === "weather" ? "Weather" : "CMMS";
+    }
+
+    function App() {
+      const [activeTab, setActiveTab] = useState("Tasks");
+      const [filters, setFilters] = useState({ state: "all", search: "", worker: "all", model: "all" });
+      const [searchInput, setSearchInput] = useState("");
+      const [page, setPage] = useState(1);
+      const [autoRefresh, setAutoRefresh] = useState(true);
+      const [tasksResponse, setTasksResponse] = useState({
+        items: [],
+        total: 0,
+        counts: { total: 0, start: 0, processing: 0, done_success: 0, done_error: 0, expired: 0 },
+        avg_runtime_s: 0,
+        tasks_per_min: 0,
+        updated_at: null,
+        sidebar: { queues: [], workers: [], quick_filters: {}, broker: {} },
+        available_models: [],
+        available_workers: [],
       });
-      setCleanRows(parsed.rows);
-      setCleanConfirmed(false);
-      setRuns({});
-      setRunLogs([]);
-      addLog("info", `Loaded file ${file.name}, rows=${parsed.rows.length}`);
-      trackRequest("upload", startedAt, true);
-    } catch (error) {
-      addLog("warn", `Upload failed: ${error.message || String(error)}`);
-      trackRequest("upload", startedAt, false);
-    }
-  }
+      const [tasksLoading, setTasksLoading] = useState(false);
+      const [tasksError, setTasksError] = useState("");
+      const [selectedTaskId, setSelectedTaskId] = useState("");
+      const [selectedTask, setSelectedTask] = useState(null);
+      const [detailLoading, setDetailLoading] = useState(false);
+      const [runtimeStatus, setRuntimeStatus] = useState(null);
+      const [liveOk, setLiveOk] = useState(true);
+      const [registeredModels, setRegisteredModels] = useState([]);
+      const [selectedModelId, setSelectedModelId] = useState("");
+      const [selectedModelConfig, setSelectedModelConfig] = useState(null);
+      const [modelsError, setModelsError] = useState("");
+      const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
+      const [newTaskForm, setNewTaskForm] = useState({
+        object_reference: "/KAZ/AKMOLA/@models/P_WATT",
+        model_id: "none",
+        queue: "forecast.default",
+        priority: "normal",
+        kwargs: "{}",
+        countdown: "0",
+        expires: "",
+      });
+      const [submitError, setSubmitError] = useState("");
+      const [copiedTaskId, setCopiedTaskId] = useState("");
+      
+      // Models tab state
+      const [modelsTab, setModelsTab] = useState("catalog");
+      const [modelsListSearch, setModelsListSearch] = useState("");
+      const [modelsHealthFilter, setModelsHealthFilter] = useState("all");
+      const [modelsViewMode, setModelsViewMode] = useState("list");
+      const [modelsFilterSidebar, setModelsFilterSidebar] = useState({
+        modelType: "all",
+        horizon: "all",
+        region: "all",
+      });
+      const [modelsData, setModelsData] = useState([]);
+      const [modelsLoading, setModelsLoading] = useState(false);
+      const [selectedModelDetail, setSelectedModelDetail] = useState(null);
+      const [modelDetailLoading, setModelDetailLoading] = useState(false);
+      const [modelRunsHistory, setModelRunsHistory] = useState([]);
+      const [modelRunsLoading, setModelRunsLoading] = useState(false);
+      const [modelDetailTab, setModelDetailTab] = useState("overview");
 
-  function updateSourceField(field, value) {
-    setSource((current) => ({ ...current, [field]: value }));
-    if (field === "target" || field === "rangeStart" || field === "rangeEnd") {
-      setCleanConfirmed(false);
-    }
-  }
+      useEffect(() => {
+        const handle = window.setTimeout(() => {
+          setFilters((current) => ({ ...current, search: searchInput.trim() }));
+          setPage(1);
+        }, 300);
+        return () => window.clearTimeout(handle);
+      }, [searchInput]);
 
-  function updateCell(rowId, col, value) {
-    setCleanRows((current) => current.map((row) => (row.__row_id === rowId ? { ...row, [col]: value } : row)));
-    setCleanConfirmed(false);
-  }
-
-  function cellStatus(row, col) {
-    const raw = row[col];
-    if (raw === "" || raw === null || raw === undefined) {
-      return "missing";
-    }
-
-    const num = toNumber(raw);
-    if (num === null || !colStats[col]) {
-      return "ok";
-    }
-
-    const { mean, std } = colStats[col];
-    if (std > 0 && Math.abs((num - mean) / std) > 3) {
-      return "outlier";
-    }
-
-    return "ok";
-  }
-
-  function applyAutoFix() {
-    const startedAt = performance.now();
-    const stats = computeColumnStats(cleanRows, source.headers);
-    const numericCols = source.headers.filter((col) => stats[col]);
-
-    const next = cleanRows.map((row, rowIndex) => {
-      const clone = { ...row };
-      numericCols.forEach((col) => {
-        const colStat = stats[col];
-        const current = toNumber(clone[col]);
-        const status = cellStatus(row, col);
-
-        if (cleaningMethod === "median") {
-          if (current === null || status === "outlier") {
-            clone[col] = colStat.median.toFixed(3);
+      async function loadRuntimeStatus() {
+        try {
+          const response = await fetch("/ui/runtime-status");
+          if (!response.ok) {
+            throw new Error(`runtime-status ${response.status}`);
           }
-          return;
+          const data = await response.json();
+          setRuntimeStatus(data);
+          setLiveOk(true);
+        } catch {
+          setLiveOk(false);
         }
+      }
 
-        if (cleaningMethod === "clip") {
-          if (current === null) {
-            clone[col] = colStat.median.toFixed(3);
-          } else {
-            clone[col] = clamp(current, colStat.p05, colStat.p95).toFixed(3);
+      async function loadTasks({ silent = false } = {}) {
+        if (!silent) {
+          setTasksLoading(true);
+        }
+        try {
+          const params = new URLSearchParams({
+            state: filters.state,
+            search: filters.search,
+            worker: filters.worker,
+            model: filters.model,
+            page: String(page),
+            page_size: String(PAGE_SIZE),
+          });
+          const response = await fetch(`/ui/tasks?${params.toString()}`);
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.message || `tasks ${response.status}`);
           }
+          setTasksResponse(data);
+          setTasksError("");
+          setLiveOk(true);
+        } catch (error) {
+          setTasksError(String(error));
+          setLiveOk(false);
+        } finally {
+          if (!silent) {
+            setTasksLoading(false);
+          }
+        }
+      }
+
+      async function loadTaskDetail(taskId, { silent = false } = {}) {
+        if (!taskId) {
+          setSelectedTask(null);
           return;
         }
+        if (!silent) {
+          setDetailLoading(true);
+        }
+        try {
+          const response = await fetch(`/ui/tasks/${encodeURIComponent(taskId)}`);
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.message || `task ${response.status}`);
+          }
+          setSelectedTask(data.task);
+          setLiveOk(true);
+        } catch {
+          setSelectedTask(null);
+        } finally {
+          if (!silent) {
+            setDetailLoading(false);
+          }
+        }
+      }
 
-        if (current !== null && status !== "missing") {
+      async function loadRegisteredModels() {
+        try {
+          const response = await fetch("/ui/models");
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.message || `models ${response.status}`);
+          }
+          const items = Array.isArray(data.models) ? data.models : [];
+          setRegisteredModels(items);
+          if (!selectedModelId && items.length) {
+            setSelectedModelId(items[0].model_id);
+          }
+          if (!newTaskForm.model_id || newTaskForm.model_id === "none") {
+            setNewTaskForm((current) => ({ ...current, model_id: items[0]?.model_id || "none" }));
+          }
+          setModelsError("");
+        } catch (error) {
+          setModelsError(String(error));
+        }
+      }
+
+      async function openModelCard(modelId) {
+        setSelectedModelId(modelId);
+        setSelectedModelConfig(null);
+        try {
+          const response = await fetch(`/ui/model-config?model_id=${encodeURIComponent(modelId)}`);
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.message || `model-config ${response.status}`);
+          }
+          setSelectedModelConfig(data);
+        } catch (error) {
+          setModelsError(String(error));
+        }
+      }
+
+      async function submitNewTask(retryRequest = null) {
+        const payload = retryRequest || {
+          object_reference: newTaskForm.object_reference,
+          model_id: newTaskForm.model_id,
+        };
+        setSubmitError("");
+        try {
+          const response = await fetch("/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json();
+          if (!response.ok && response.status !== 202) {
+            throw new Error(data.message || `predict ${response.status}`);
+          }
+          setIsNewTaskOpen(false);
+          setActiveTab("Tasks");
+          setSelectedTaskId(data.task_id || "");
+          await loadTasks();
+          if (data.task_id) {
+            await loadTaskDetail(data.task_id);
+          }
+        } catch (error) {
+          setSubmitError(String(error));
+        }
+      }
+
+      async function retryTask(task) {
+        if (!task?.request) {
           return;
         }
+        await submitNewTask(task.request);
+      }
 
-        const prev = toNumber(cleanRows[Math.max(0, rowIndex - 1)]?.[col]);
-        const nextVal = toNumber(cleanRows[Math.min(cleanRows.length - 1, rowIndex + 1)]?.[col]);
-        if (prev !== null && nextVal !== null) {
-          clone[col] = ((prev + nextVal) / 2).toFixed(3);
-        } else if (prev !== null) {
-          clone[col] = prev.toFixed(3);
-        } else if (nextVal !== null) {
-          clone[col] = nextVal.toFixed(3);
-        } else {
-          clone[col] = colStat.median.toFixed(3);
+      async function copyTaskId(taskId) {
+        if (!taskId) {
+          return;
         }
-      });
-      return clone;
-    });
-
-    setCleanRows(next);
-    setCleanConfirmed(false);
-    addLog("warn", `Auto-fix applied using method: ${cleaningMethod}`);
-    trackRequest("autofix", startedAt, true);
-  }
-
-  function confirmCleaning() {
-    setCleanConfirmed(true);
-    addLog("info", "Cleaning step confirmed by user");
-  }
-
-  function toggleModel(model) {
-    setSelectedModels((current) => (
-      current.includes(model)
-        ? current.filter((item) => item !== model)
-        : [...current, model]
-    ));
-  }
-
-  function updateParam(path, value) {
-    const [head, key] = path.split(".");
-    setParams((current) => ({
-      ...current,
-      [head]: {
-        ...current[head],
-        [key]: value,
-      },
-    }));
-  }
-
-  async function runModels() {
-    const series = buildSeries(cleanRows, source.target, source.rangeStart, source.rangeEnd).map((point) => point.value);
-    const horizon = clamp(Number(source.horizon) || 24, 1, Math.max(1, Math.floor(series.length / 3)));
-    if (series.length <= horizon + 3) {
-      addLog("warn", "Not enough points to run models. Increase selected range.");
-      return;
-    }
-
-    const train = series.slice(0, -horizon);
-    const actual = series.slice(-horizon);
-    setRunInProgress(true);
-    setRuns({});
-    addLog("info", `Starting run for ${selectedModels.length} models, horizon=${horizon}`);
-
-    for (const model of selectedModels) {
-      const modelRunStartedAt = performance.now();
-      setRuns((current) => ({
-        ...current,
-        [model]: { status: "queued", progress: 0, metrics: null, predicted: [], actual },
-      }));
-
-      for (let p = 10; p <= 70; p += 15) {
-        await sleep(260);
-        setRuns((current) => ({
-          ...current,
-          [model]: { ...current[model], status: "running", progress: p },
-        }));
+        try {
+          await navigator.clipboard.writeText(taskId);
+          setCopiedTaskId(taskId);
+          window.setTimeout(() => setCopiedTaskId((current) => (current === taskId ? "" : current)), 1500);
+        } catch {
+          setCopiedTaskId("");
+        }
       }
 
-      const predicted = forecastWithModel(model, train, horizon);
-      const metrics = calcMetrics(actual, predicted);
-      await sleep(220);
-      setRuns((current) => ({
-        ...current,
-        [model]: {
-          ...current[model],
-          status: "done",
-          progress: 100,
-          metrics,
-          predicted,
-          actual,
-        },
-      }));
-
-      const warnCount = cleanRows.reduce((acc, row) => {
-        const status = cellStatus(row, source.target);
-        return acc + (status === "missing" || status === "outlier" ? 1 : 0);
-      }, 0);
-      if (warnCount > Math.floor(cleanRows.length * 0.08)) {
-        addLog("warn", `${model}: elevated data quality risk (${warnCount} flagged points)`);
-      }
-      addLog("info", `${model}: completed, score=${metrics.score.toFixed(2)}`);
-      trackRequest("modelRun", modelRunStartedAt, true);
-    }
-
-    setRunInProgress(false);
-    setStep(5);
-  }
-
-  const resultRows = useMemo(() => (
-    Object.entries(runs)
-      .filter(([, data]) => data.status === "done")
-      .map(([model, data]) => ({ model, ...data.metrics, predicted: data.predicted, actual: data.actual }))
-      .sort((a, b) => b.score - a.score)
-  ), [runs]);
-
-  const resultSummary = useMemo(() => {
-    if (!resultRows.length) {
-      return {
-        completedModels: 0,
-        bestScore: 0,
-        averageScore: 0,
-        warningCount: runLogs.filter((item) => item.level === "warn").length,
-      };
-    }
-    const scores = resultRows.map((row) => row.score);
-    return {
-      completedModels: resultRows.length,
-      bestScore: Math.max(...scores),
-      averageScore: scores.reduce((acc, score) => acc + score, 0) / scores.length,
-      warningCount: runLogs.filter((item) => item.level === "warn").length,
-    };
-  }, [resultRows, runLogs]);
-
-  const avgRequestDuration = requestStats.total
-    ? requestStats.totalDurationMs / requestStats.total
-    : 0;
-
-  async function loadRegisteredModels() {
-    const startedAt = performance.now();
-    setModelsLoading(true);
-    setModelsError("");
-    try {
-      const response = await fetch("/ui/models");
-      const data = await response.json();
-
-      if (!response.ok) {
-        setModelsError(data.message || "Failed to load model list");
-        setRegisteredModels([]);
-        trackRequest("modelList", startedAt, false);
-        return;
+      async function loadModelsList() {
+        setModelsLoading(true);
+        try {
+          const response = await fetch("/ui/models");
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.message || `models ${response.status}`);
+          }
+          const items = Array.isArray(data.models) ? data.models : [];
+          setModelsData(items);
+          setModelsError("");
+          setLiveOk(true);
+        } catch (error) {
+          setModelsError(String(error));
+          setLiveOk(false);
+        } finally {
+          setModelsLoading(false);
+        }
       }
 
-      const models = Array.isArray(data.models) ? data.models : [];
-      setRegisteredModels(models);
-      if (models.length && !selectedModelId) {
-        setSelectedModelId(models[0].model_id);
+      async function loadModelDetail(modelId) {
+        if (!modelId) {
+          setSelectedModelDetail(null);
+          return;
+        }
+        setModelDetailLoading(true);
+        try {
+          const response = await fetch(`/ui/models/${encodeURIComponent(modelId)}`);
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.message || `model detail ${response.status}`);
+          }
+          setSelectedModelDetail(data);
+          setLiveOk(true);
+        } catch (error) {
+          setSelectedModelDetail(null);
+          setModelsError(String(error));
+        } finally {
+          setModelDetailLoading(false);
+        }
       }
-      trackRequest("modelList", startedAt, true);
-    } catch (error) {
-      setModelsError(String(error));
-      setRegisteredModels([]);
-      trackRequest("modelList", startedAt, false);
-    } finally {
-      setModelsLoading(false);
-    }
-  }
 
-  useEffect(() => {
-    loadRegisteredModels();
-  }, []);
-
-  async function openModelCard(modelId) {
-    const startedAt = performance.now();
-    setSelectedModelId(modelId);
-    setSelectedModelConfig(null);
-    try {
-      const response = await fetch(`/ui/model-config?model_id=${encodeURIComponent(modelId)}`);
-      const data = await response.json();
-      if (!response.ok) {
-        addLog("warn", `Model config load failed for ${modelId}`);
-        trackRequest("modelConfig", startedAt, false);
-        return;
+      async function loadModelRuns(modelId) {
+        if (!modelId) {
+          setModelRunsHistory([]);
+          return;
+        }
+        setModelRunsLoading(true);
+        try {
+          const response = await fetch(`/ui/models/${encodeURIComponent(modelId)}/runs`);
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(data.message || `model runs ${response.status}`);
+          }
+          const runs = Array.isArray(data.runs) ? data.runs : [];
+          setModelRunsHistory(runs);
+          setLiveOk(true);
+        } catch (error) {
+          setModelRunsHistory([]);
+          setModelsError(String(error));
+        } finally {
+          setModelRunsLoading(false);
+        }
       }
-      setSelectedModelConfig(data);
-      trackRequest("modelConfig", startedAt, true);
-    } catch (error) {
-      addLog("warn", `Model config load failed for ${modelId}: ${String(error)}`);
-      trackRequest("modelConfig", startedAt, false);
-    }
-  }
 
-  const deviationRows = useMemo(() => {
-    if (!resultRows.length) {
-      return [];
-    }
-    const best = resultRows[0];
-    const actual = best.actual;
-    return actual.map((value, idx) => {
-      const row = {
-        idx,
-        dateLabel: source.dateColumn
-          ? String(cleanRows[clamp(source.rangeEnd - actual.length + 1 + idx, 0, cleanRows.length - 1)]?.[source.dateColumn] || `t+${idx + 1}`)
-          : `t+${idx + 1}`,
-        actual: value,
-      };
+      function getModelHealth(model) {
+        if (!model) return "unknown";
+        if (model.health === "error") return "error";
+        if (model.health === "warning") return "warning";
+        if (model.health === "ok") return "ok";
+        return "unknown";
+      }
 
-      resultRows.forEach((modelItem) => {
-        const pred = modelItem.predicted[idx] ?? null;
-        const absPct = pred === null ? 0 : (Math.abs(pred - value) / Math.max(Math.abs(value), 1e-6)) * 100;
-        row[`${modelItem.model}_pred`] = pred;
-        row[`${modelItem.model}_quality`] = pointQuality(absPct);
-      });
+      function getHealthColor(health) {
+        if (health === "error") return "state-done-error";
+        if (health === "warning") return "state-start";
+        if (health === "ok") return "state-done-success";
+        return "state-default";
+      }
 
-      return row;
-    });
-  }, [resultRows, source.dateColumn, source.rangeEnd, cleanRows]);
+      useEffect(() => {
+        if (activeTab === "Models") {
+          loadModelsList();
+        }
+      }, [activeTab]);
 
-  const chartModelLines = useMemo(() => {
-    if (!resultRows.length) {
-      return null;
-    }
-    const width = 900;
-    const height = 260;
-    const pad = 24;
-    const actual = resultRows[0].actual;
-    const allValues = [...actual, ...resultRows.flatMap((item) => item.predicted)];
-    const min = Math.min(...allValues);
-    const max = Math.max(...allValues);
-    const span = Math.max(max - min, 1);
+      useEffect(() => {
+        if (activeTab === "Tasks") {
+          loadTasks();
+        }
+      }, [filters.state, filters.search, filters.worker, filters.model, page, activeTab]);
 
-    function toLine(values) {
-      return values
-        .map((value, idx) => {
-          const x = pad + (idx / Math.max(values.length - 1, 1)) * (width - pad * 2);
-          const y = height - pad - ((value - min) / span) * (height - pad * 2);
-          return `${x},${y}`;
-        })
-        .join(" ");
-    }
+      useEffect(() => {
+        if (activeTab === "Models" && selectedModelId) {
+          loadModelDetail(selectedModelId);
+          loadModelRuns(selectedModelId);
+        }
+      }, [selectedModelId, activeTab]);
 
-    return {
-      actual: toLine(actual),
-      models: resultRows.map((item) => ({
-        model: item.model,
-        line: toLine(item.predicted),
-      })),
-    };
-  }, [resultRows]);
+      useEffect(() => {
+        if (selectedTaskId) {
+          loadTaskDetail(selectedTaskId, { silent: true });
+        }
+      }, [selectedTaskId]);
 
-  const editColumns = source.headers.slice(0, 8);
-  const visibleRows = cleanRows.slice(source.rangeStart, Math.min(source.rangeStart + 35, source.rangeEnd + 1));
+      useEffect(() => {
+        if (!autoRefresh) {
+          return undefined;
+        }
+        const interval = window.setInterval(() => {
+          if (activeTab === "Tasks") {
+            loadTasks({ silent: true });
+            loadRuntimeStatus();
+            if (selectedTaskId) {
+              loadTaskDetail(selectedTaskId, { silent: true });
+            }
+          } else if (activeTab === "Models") {
+            loadModelsList();
+            if (selectedModelId) {
+              loadModelDetail(selectedModelId);
+              loadModelRuns(selectedModelId);
+            }
+          }
+        }, 1500);
+        return () => window.clearInterval(interval);
+      }, [autoRefresh, filters.state, filters.search, filters.worker, filters.model, page, selectedTaskId, activeTab, selectedModelId]);
 
-  return html`
-    <div className="wizard-shell">
-      <header className="wizard-header">
-        <div>
-          <p className="eyebrow">Forecast Studio</p>
-          <h1>Пятишаговый мастер прогнозирования</h1>
-        </div>
-        <div className="step-chip">Шаг ${step} / 5</div>
-      </header>
+      const selectedTaskRequest = selectedTask?.request || null;
+      const selectedTaskResult = selectedTask?.result || null;
+      const pageCount = Math.max(1, Math.ceil((tasksResponse.total || 0) / PAGE_SIZE));
+      const startRow = tasksResponse.total ? (page - 1) * PAGE_SIZE + 1 : 0;
+      const endRow = Math.min(page * PAGE_SIZE, tasksResponse.total || 0);
+      const queues = tasksResponse.sidebar?.queues || [];
+      const workers = tasksResponse.sidebar?.workers || [];
+      const quickFilters = tasksResponse.sidebar?.quick_filters || {};
+      const brokerInfo = tasksResponse.sidebar?.broker || {};
 
-      <nav className="wizard-steps">
-        ${STEP_TITLES.map((title, idx) => {
-          const next = idx + 1;
-          const disabled =
-            (next === 2 && !canStep2) ||
-            (next === 3 && !canStep3) ||
-            (next === 4 && !canStep4) ||
-            (next === 5 && !canStep5);
+      // Models filtering logic
+      const filteredModels = useMemo(() => {
+        return modelsData.filter((model) => {
+          const matchesSearch = !modelsListSearch || model.model_id.toLowerCase().includes(modelsListSearch.toLowerCase());
+          const health = getModelHealth(model);
+          const matchesHealth = modelsHealthFilter === "all" || health === modelsHealthFilter;
+          const matchesType = modelsFilterSidebar.modelType === "all" || model.model_type === modelsFilterSidebar.modelType;
+          const matchesHorizon = modelsFilterSidebar.horizon === "all" || model.horizon === modelsFilterSidebar.horizon;
+          const matchesRegion = modelsFilterSidebar.region === "all" || model.region === modelsFilterSidebar.region;
+          return matchesSearch && matchesHealth && matchesType && matchesHorizon && matchesRegion;
+        });
+      }, [modelsData, modelsListSearch, modelsHealthFilter, modelsFilterSidebar]);
+
+      const modelStats = useMemo(() => {
+        const total = modelsData.length;
+        const active = modelsData.filter((m) => getModelHealth(m) === "ok").length;
+        const warnings = modelsData.filter((m) => getModelHealth(m) === "warning").length;
+        const errors = modelsData.filter((m) => getModelHealth(m) === "error").length;
+        const lastUpdated = modelsData.length ? Math.max(...modelsData.map((m) => m.updated_at || 0)) : null;
+        return { total, active, warnings, errors, lastUpdated };
+      }, [modelsData]);
+
+      const content = useMemo(() => {
+        if (activeTab === "Workers") {
           return html`
-            <button
-              key=${title}
-              type="button"
-              className=${`step-btn ${step === next ? "active" : ""}`}
-              disabled=${disabled}
-              onClick=${() => switchStep(next)}
-            >
-              <span>${next}</span>
-              <small>${title}</small>
-            </button>
-          `;
-        })}
-      </nav>
-
-      <section className="stats-grid">
-        <article className="stat-card">
-          <p>Запросов выполнено</p>
-          <strong>${requestStats.total}</strong>
-          <small>upload: ${requestStats.byType.upload}, auto-fix: ${requestStats.byType.autofix}, model run: ${requestStats.byType.modelRun}</small>
-        </article>
-        <article className="stat-card">
-          <p>Успешно / с ошибкой</p>
-          <strong>${requestStats.success} / ${requestStats.failed}</strong>
-          <small>последний ответ: ${formatMs(requestStats.lastDurationMs)}</small>
-        </article>
-        <article className="stat-card">
-          <p>Среднее время запроса</p>
-          <strong>${formatMs(avgRequestDuration)}</strong>
-          <small>по всем операциям интерфейса</small>
-        </article>
-        <article className="stat-card">
-          <p>Завершено моделей</p>
-          <strong>${resultSummary.completedModels}</strong>
-          <small>текущий запуск</small>
-        </article>
-        <article className="stat-card">
-          <p>Итоговый скор</p>
-          <strong>${resultSummary.bestScore.toFixed(2)}</strong>
-          <small>best: ${resultSummary.bestScore.toFixed(2)}, avg: ${resultSummary.averageScore.toFixed(2)}</small>
-        </article>
-        <article className="stat-card">
-          <p>Предупреждения</p>
-          <strong>${resultSummary.warningCount}</strong>
-          <small>по логам выполнения</small>
-        </article>
-      </section>
-
-      <section className="panel-card model-registry-card">
-        <div className="model-registry-head">
-          <h2>Реестр зарегистрированных моделей</h2>
-          <button type="button" className="ghost" onClick=${() => {
-            setSelectedModelConfig(null);
-            setSelectedModelId("");
-            setModelsError("");
-            loadRegisteredModels();
-          }}>Сбросить выбор</button>
-        </div>
-        <div className="model-registry-meta">
-          <span>Найдено моделей: ${registeredModels.length}</span>
-          <span>Запросов по конфигу: ${requestStats.byType.modelConfig}</span>
-          <span>${modelsLoading ? "Загрузка списка..." : ""}</span>
-          <span className="error-text">${modelsError}</span>
-        </div>
-        <div className="model-cards-grid">
-          ${registeredModels.map((model) => html`
-            <button
-              key=${model.model_id}
-              type="button"
-              className=${`model-card ${selectedModelId === model.model_id ? "active" : ""}`}
-              onClick=${() => openModelCard(model.model_id)}
-            >
-              <strong>${model.model_id}</strong>
-              <small>${new Date(model.updated_at * 1000).toLocaleString("ru-RU")}</small>
-            </button>
-          `)}
-        </div>
-        ${selectedModelId && html`
-          <div className="model-config-panel">
-            <h3>Карточка модели: ${selectedModelId}</h3>
-            ${selectedModelConfig
-              ? html`
-                  <div className="grid two">
-                    <div>
-                      <label>Raw config</label>
-                      <pre className="config-viewer">${JSON.stringify(selectedModelConfig.raw_config, null, 2)}</pre>
-                    </div>
-                    <div>
-                      <label>Normalized config</label>
-                      <pre className="config-viewer">${JSON.stringify(selectedModelConfig.normalized_config, null, 2)}</pre>
-                    </div>
-                  </div>
-                `
-              : html`<p className="hint">Загрузка конфигурации модели...</p>`}
-          </div>
-        `}
-      </section>
-
-      <section className="wizard-content">
-        ${step === 1 && html`
-          <section className="panel-card">
-            <h2>Экран 1 — Источник данных</h2>
-            <div className="grid two">
-              <div>
-                <label>Загрузка файла (CSV)</label>
-                <input type="file" accept=".csv,text/csv" onChange=${onFileUpload} />
-                <p className="hint">${source.fileName ? `Загружено: ${source.fileName}` : "Файл еще не загружен"}</p>
+            <section className="monitor-card placeholder-card">
+              <div className="section-head">
+                <h2>Workers</h2>
+                <p>Текущая сводка по пулу taskiq и runtime сервера.</p>
               </div>
-              <div>
-                <label>Горизонт прогноза (точек)</label>
-                <input type="number" min="1" max="720" value=${source.horizon} onInput=${(e) => updateSourceField("horizon", Number(e.target.value || 24))} />
-              </div>
-            </div>
-
-            ${rowCount > 0 && html`
-              <div className="grid three">
-                <div>
-                  <label>Целевая переменная</label>
-                  <select value=${source.target} onChange=${(e) => updateSourceField("target", e.target.value)}>
-                    ${source.headers.map((header) => html`<option key=${header} value=${header}>${header}</option>`)}
-                  </select>
-                </div>
-                <div>
-                  <label>Регрессоры</label>
-                  <select multiple size="4" value=${source.regressors} onChange=${(e) => {
-                    const selected = Array.from(e.target.selectedOptions).map((option) => option.value);
-                    updateSourceField("regressors", selected);
-                  }}>
-                    ${source.headers
-                      .filter((header) => header !== source.target)
-                      .map((header) => html`<option key=${header} value=${header}>${header}</option>`)}
-                  </select>
-                </div>
-                <div className="range-block">
-                  <label>Диапазон строк</label>
-                  <div className="inline-inputs">
-                    <input type="number" min="0" max=${Math.max(rowCount - 1, 0)} value=${source.rangeStart} onInput=${(e) => updateSourceField("rangeStart", clamp(Number(e.target.value || 0), 0, Math.max(rowCount - 1, 0)))} />
-                    <span>до</span>
-                    <input type="number" min="0" max=${Math.max(rowCount - 1, 0)} value=${source.rangeEnd} onInput=${(e) => updateSourceField("rangeEnd", clamp(Number(e.target.value || rowCount - 1), 0, Math.max(rowCount - 1, 0)))} />
-                  </div>
-                </div>
-              </div>
-            `}
-
-            <div className="chart-box">
-              <h3>Мини-превью ряда</h3>
-              ${rangeSeries.length
-                ? html`
-                    <svg viewBox="0 0 820 220" className="mini-chart" preserveAspectRatio="none">
-                      <polyline points=${previewPath} fill="none" stroke="#2f6b59" strokeWidth="3" />
-                    </svg>
-                  `
-                : html`<p className="empty">Загрузите CSV и выберите target для предпросмотра.</p>`}
-            </div>
-
-            <div className="actions">
-              <button type="button" disabled=${!canStep2} onClick=${() => switchStep(2)}>Далее: Редактор / очистка</button>
-            </div>
-          </section>
-        `}
-
-        ${step === 2 && html`
-          <section className="panel-card">
-            <h2>Экран 2 — Редактор / очистка</h2>
-            <div className="grid three compact">
-              <div>
-                <label>Метод автоисправления</label>
-                <select value=${cleaningMethod} onChange=${(e) => setCleaningMethod(e.target.value)}>
-                  <option value="median">Медиана + замена выбросов</option>
-                  <option value="interpolate">Интерполяция пропусков</option>
-                  <option value="clip">Клиппинг по перцентилям</option>
-                </select>
-              </div>
-              <div className="legend-inline">
-                <span className="cell-tag outlier">Янтарный: выброс</span>
-                <span className="cell-tag missing">Красный: пропуск</span>
-              </div>
-              <div className="actions-inline">
-                <button type="button" className="ghost" onClick=${applyAutoFix}>Применить автоисправление</button>
-                <button type="button" disabled=${cleanConfirmed} onClick=${confirmCleaning}>Подтвердить данные</button>
-              </div>
-            </div>
-
-            <div className="table-wrap tall">
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    ${editColumns.map((col) => html`<th key=${col}>${col}</th>`)}
-                  </tr>
-                </thead>
-                <tbody>
-                  ${visibleRows.map((row) => html`
-                    <tr key=${row.__row_id}>
-                      <td>${row.__row_id}</td>
-                      ${editColumns.map((col) => {
-                        const status = cellStatus(row, col);
-                        return html`
-                          <td key=${`${row.__row_id}-${col}`} className=${`editable-cell ${status !== "ok" ? status : ""}`}>
-                            <input
-                              value=${String(row[col] ?? "")}
-                              onInput=${(e) => updateCell(row.__row_id, col, e.target.value)}
-                            />
-                          </td>
-                        `;
-                      })}
-                    </tr>
-                  `)}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="actions between">
-              <button type="button" className="ghost" onClick=${() => switchStep(1)}>Назад</button>
-              <button type="button" disabled=${!cleanConfirmed} onClick=${() => switchStep(3)}>Далее: Модель</button>
-            </div>
-          </section>
-        `}
-
-        ${step === 3 && html`
-          <section className="panel-card">
-            <h2>Экран 3 — Модель</h2>
-
-            <div className="chip-row">
-              ${MODEL_LIST.map((model) => html`
-                <button
-                  key=${model}
-                  type="button"
-                  className=${`algo-chip ${selectedModels.includes(model) ? "selected" : ""}`}
-                  onClick=${() => toggleModel(model)}
-                >
-                  ${model}
-                </button>
-              `)}
-            </div>
-
-            <div className="grid two">
-              <div className="sub-card">
-                <h3>Prophet</h3>
-                <label>Changepoint Prior</label>
-                <input type="number" step="0.01" min="0.01" max="1" value=${params.prophet.changepoint} onInput=${(e) => updateParam("prophet.changepoint", Number(e.target.value))} />
-                <label>Seasonality Prior</label>
-                <input type="number" step="0.01" min="0.01" max="2" value=${params.prophet.seasonality} onInput=${(e) => updateParam("prophet.seasonality", Number(e.target.value))} />
-                <label>Interval Width</label>
-                <input type="number" step="0.01" min="0.5" max="0.99" value=${params.prophet.interval} onInput=${(e) => updateParam("prophet.interval", Number(e.target.value))} />
-              </div>
-
-              <div className="sub-card">
-                <h3>ARIMA / XGBoost</h3>
-                <label>ARIMA p</label>
-                <input type="number" min="0" max="6" value=${params.arima.p} onInput=${(e) => updateParam("arima.p", Number(e.target.value))} />
-                <label>ARIMA d</label>
-                <input type="number" min="0" max="2" value=${params.arima.d} onInput=${(e) => updateParam("arima.d", Number(e.target.value))} />
-                <label>ARIMA q</label>
-                <input type="number" min="0" max="6" value=${params.arima.q} onInput=${(e) => updateParam("arima.q", Number(e.target.value))} />
-                <label>XGB Depth</label>
-                <input type="number" min="2" max="12" value=${params.xgb.depth} onInput=${(e) => updateParam("xgb.depth", Number(e.target.value))} />
-                <label>XGB Learning Rate</label>
-                <input type="number" step="0.01" min="0.01" max="0.5" value=${params.xgb.learningRate} onInput=${(e) => updateParam("xgb.learningRate", Number(e.target.value))} />
-                <label>XGB Estimators</label>
-                <input type="number" min="50" max="600" value=${params.xgb.estimators} onInput=${(e) => updateParam("xgb.estimators", Number(e.target.value))} />
-              </div>
-            </div>
-
-            <div className="sub-card validation-block">
-              <h3>Валидация</h3>
-              <div className="grid three compact">
-                <div>
-                  <label>Split (%)</label>
-                  <input type="number" min="10" max="40" value=${params.validation.split} onInput=${(e) => updateParam("validation.split", Number(e.target.value))} />
-                </div>
-                <div>
-                  <label>Folds</label>
-                  <input type="number" min="2" max="10" value=${params.validation.folds} onInput=${(e) => updateParam("validation.folds", Number(e.target.value))} />
-                </div>
-                <div>
-                  <label>Primary Metric</label>
-                  <select value=${params.validation.metric} onChange=${(e) => updateParam("validation.metric", e.target.value)}>
-                    <option value="MAPE">MAPE</option>
-                    <option value="RMSE">RMSE</option>
-                    <option value="MAE">MAE</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="actions between">
-              <button type="button" className="ghost" onClick=${() => switchStep(2)}>Назад</button>
-              <button type="button" disabled=${selectedModels.length === 0} onClick=${() => switchStep(4)}>Далее: Запуск</button>
-            </div>
-          </section>
-        `}
-
-        ${step === 4 && html`
-          <section className="panel-card">
-            <h2>Экран 4 — Запуск</h2>
-            <div className="actions">
-              <button type="button" disabled=${runInProgress} onClick=${runModels}>Запустить выбранные модели</button>
-            </div>
-
-            <div className="run-grid">
-              ${selectedModels.map((model) => {
-                const run = runs[model] || { status: "idle", progress: 0, metrics: null };
-                return html`
-                  <article key=${model} className="run-card">
-                    <div className="run-head">
-                      <strong>${model}</strong>
-                      <span className=${`status ${run.status}`}>${run.status}</span>
-                    </div>
-                    <div className="progress-rail"><span style=${{ width: `${run.progress}%` }}></span></div>
-                    ${run.metrics
-                      ? html`
-                          <div className="metrics-inline">
-                            <span>MAPE: ${run.metrics.mape.toFixed(2)}</span>
-                            <span>RMSE: ${run.metrics.rmse.toFixed(2)}</span>
-                            <span>Score: ${run.metrics.score.toFixed(2)}</span>
-                          </div>
-                        `
-                      : html`<p className="hint">Предварительные метрики появятся после завершения.</p>`}
+              <div className="worker-grid">
+                ${workers.map((worker) => html`
+                  <article key=${worker.name} className="worker-card ${worker.status}">
+                    <strong>${worker.name}</strong>
+                    <span>${worker.status}</span>
+                    <small>active tasks: ${worker.active_tasks}</small>
                   </article>
-                `;
-              })}
-            </div>
+                `)}
+                <article className="worker-card neutral">
+                  <strong>Runtime</strong>
+                  <span>CPU load 1m: ${runtimeStatus?.cpu_load?.load_1m ?? "--"}</span>
+                  <small>RSS: ${runtimeStatus?.memory?.rss_mb ?? "--"} MB</small>
+                </article>
+              </div>
+            </section>
+          `;
+        }
 
-            <div className="log-box">
-              <h3>Лог выполнения</h3>
-              <div className="log-list">
-                ${runLogs.length
-                  ? runLogs.map((entry, idx) => html`
-                      <div key=${`${entry.ts}-${idx}`} className=${`log-item ${entry.level}`}>
-                        <span>[${entry.ts}]</span>
-                        <strong>${entry.level.toUpperCase()}</strong>
-                        <p>${entry.message}</p>
+        if (activeTab === "Queues") {
+          return html`
+            <section className="monitor-card placeholder-card">
+              <div className="section-head">
+                <h2>Queues</h2>
+                <p>Сводка очередей, агрегированная из monitor registry.</p>
+              </div>
+              <div className="queue-grid">
+                ${queues.map((queue) => html`
+                  <article key=${queue.name} className="queue-card ${queue.kind}">
+                    <strong>${queue.name}</strong>
+                    <span>${queue.count}</span>
+                  </article>
+                `)}
+              </div>
+            </section>
+          `;
+        }
+
+        if (activeTab === "Models") {
+          return html`
+            <section className="models-layout">
+              <aside className="models-sidebar">
+                <div className="sidebar-section">
+                  <h3>Model Type</h3>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.modelType === "all" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, modelType: "all" }))}>
+                    <span className="sidebar-label">All types</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.modelType === "Prophet" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, modelType: "Prophet" }))}>
+                    <span className="sidebar-label">Prophet</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.modelType === "ARIMA" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, modelType: "ARIMA" }))}>
+                    <span className="sidebar-label">ARIMA</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.modelType === "XGBoost" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, modelType: "XGBoost" }))}>
+                    <span className="sidebar-label">XGBoost</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.modelType === "ETS" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, modelType: "ETS" }))}>
+                    <span className="sidebar-label">ETS</span>
+                  </button>
+                </div>
+                <div className="sidebar-section">
+                  <h3>Horizon</h3>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.horizon === "all" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, horizon: "all" }))}>
+                    <span className="sidebar-label">All</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.horizon === "short" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, horizon: "short" }))}>
+                    <span className="sidebar-label">Short</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.horizon === "medium" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, horizon: "medium" }))}>
+                    <span className="sidebar-label">Medium</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.horizon === "long" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, horizon: "long" }))}>
+                    <span className="sidebar-label">Long</span>
+                  </button>
+                </div>
+                <div className="sidebar-section">
+                  <h3>Region</h3>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.region === "all" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, region: "all" }))}>
+                    <span className="sidebar-label">All regions</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.region === "AKMOLA" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, region: "AKMOLA" }))}>
+                    <span className="sidebar-label">AKMOLA</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.region === "AKTOBE" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, region: "AKTOBE" }))}>
+                    <span className="sidebar-label">AKTOBE</span>
+                  </button>
+                  <button type="button" className=${`sidebar-item ${modelsFilterSidebar.region === "ALMATY" ? "active" : ""}`} onClick=${() => setModelsFilterSidebar((current) => ({ ...current, region: "ALMATY" }))}>
+                    <span className="sidebar-label">ALMATY</span>
+                  </button>
+                </div>
+              </aside>
+
+              <section className="models-main">
+                <div className="toolbar-card">
+                  <div className="section-head between compact">
+                    <div>
+                      <h2>Models</h2>
+                      <p>Просмотр и управление моделями прогнозирования.</p>
+                    </div>
+                    <button type="button" className="ghost-btn" onClick=${() => loadModelsList()}>Обновить</button>
+                  </div>
+                  <div className="toolbar-row">
+                    <input className="search-input" placeholder="Поиск по model_id..." value=${modelsListSearch} onInput=${(event) => setModelsListSearch(event.target.value)} />
+                    <select value=${modelsHealthFilter} onChange=${(event) => setModelsHealthFilter(event.target.value)}>
+                      <option value="all">All health</option>
+                      <option value="ok">Активные</option>
+                      <option value="warning">Предупреждение</option>
+                      <option value="error">Ошибка</option>
+                    </select>
+                    <div className="view-toggle">
+                      <button type="button" className=${`view-btn ${modelsViewMode === "list" ? "active" : ""}`} onClick=${() => setModelsViewMode("list")} title="List view">⊞</button>
+                      <button type="button" className=${`view-btn ${modelsViewMode === "cards" ? "active" : ""}`} onClick=${() => setModelsViewMode("cards")} title="Cards view">▦</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="stat-row monitor-card">
+                  <span>Всего моделей: ${modelStats.total}</span>
+                  <span>Активных: ${modelStats.active}</span>
+                  <span>Предупреждений: ${modelStats.warnings}</span>
+                  <span>Ошибок: ${modelStats.errors}</span>
+                  <span>Последнее обновление: ${modelStats.lastUpdated ? formatRelative(modelStats.lastUpdated * 1000) : "--"}</span>
+                </div>
+
+                <div className=${`model-catalog ${selectedModelId ? "with-detail" : ""}`}>
+                  ${modelsViewMode === "list"
+                    ? html`
+                        <div className="model-list-panel monitor-card">
+                          <div className="table-wrap">
+                            <table className="models-table">
+                              <thead>
+                                <tr>
+                                  <th></th>
+                                  <th>model_id</th>
+                                  <th>Type</th>
+                                  <th>Horizon</th>
+                                  <th>MAPE</th>
+                                  <th>Last run</th>
+                                  <th>Runtime</th>
+                                  <th>Runs</th>
+                                  <th>Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                ${modelsLoading
+                                  ? html`<tr><td colSpan="9" className="empty-row">Loading models...</td></tr>`
+                                  : !filteredModels.length
+                                    ? html`<tr><td colSpan="9" className="empty-row">Модели не найдены</td></tr>`
+                                    : filteredModels.map((model) => html`
+                                        <tr key=${model.model_id} className=${`${selectedModelId === model.model_id ? "selected-row" : ""}`} onClick=${() => setSelectedModelId(model.model_id)}>
+                                          <td className="center"><span className=${`health-dot ${getHealthColor(getModelHealth(model))}`}></span></td>
+                                          <td className="clickable"><strong>${model.model_id}</strong></td>
+                                          <td>${model.model_type || "--"}</td>
+                                          <td>${model.horizon || "--"}</td>
+                                          <td>${model.mape !== null && model.mape !== undefined ? `${Number(model.mape).toFixed(2)}%` : "--"}</td>
+                                          <td>${formatRelative(model.last_run_at ? model.last_run_at * 1000 : null)}</td>
+                                          <td className="mono">${formatSeconds(model.avg_runtime_s)}</td>
+                                          <td>${model.run_count || 0}</td>
+                                          <td><button type="button" className="table-action" onClick=${(event) => { event.stopPropagation(); setSelectedModelId(model.model_id); }}>Details</button></td>
+                                        </tr>
+                                      `)}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      `
+                    : html`
+                        <div className="model-cards-panel">
+                          ${modelsLoading
+                            ? html`<p className="empty-state">Loading models...</p>`
+                            : !filteredModels.length
+                              ? html`<p className="empty-state">Модели не найдены</p>`
+                              : filteredModels.map((model) => html`
+                                  <article key=${model.model_id} className=${`model-card-item ${selectedModelId === model.model_id ? "selected" : ""}`} onClick=${() => setSelectedModelId(model.model_id)}>
+                                    <div className="card-header">
+                                      <span className=${`health-dot ${getHealthColor(getModelHealth(model))}`}></span>
+                                      <h4>${model.model_id}</h4>
+                                    </div>
+                                    <div className="card-body">
+                                      <div className="card-row"><span>Type:</span><strong>${model.model_type || "--"}</strong></div>
+                                      <div className="card-row"><span>Horizon:</span><strong>${model.horizon || "--"}</strong></div>
+                                      <div className="card-row"><span>MAPE:</span><strong>${model.mape !== null && model.mape !== undefined ? `${Number(model.mape).toFixed(2)}%` : "--"}</strong></div>
+                                      <div className="card-row"><span>Last run:</span><strong>${formatRelative(model.last_run_at ? model.last_run_at * 1000 : null)}</strong></div>
+                                      <div className="card-row"><span>Runs:</span><strong>${model.run_count || 0}</strong></div>
+                                    </div>
+                                  </article>
+                                `)}
+                        </div>
+                      `}
+
+                  ${selectedModelId && html`
+                    <aside className="model-detail-panel monitor-card">
+                      <div className="detail-head">
+                        <div>
+                          <h3>${selectedModelDetail?.model_id || selectedModelId}</h3>
+                          <p>${selectedModelDetail?.model_type || "--"}</p>
+                        </div>
+                        <button type="button" className="close-btn" onClick=${() => { setSelectedModelId(""); setSelectedModelDetail(null); setModelRunsHistory([]); }}>✕</button>
                       </div>
-                    `)
-                  : html`<p className="empty">Лог пока пуст.</p>`}
+
+                      <div className="detail-tabs">
+                        <button type="button" className=${`tab-btn ${modelDetailTab === "overview" ? "active" : ""}`} onClick=${() => setModelDetailTab("overview")}>Обзор</button>
+                        <button type="button" className=${`tab-btn ${modelDetailTab === "config" ? "active" : ""}`} onClick=${() => setModelDetailTab("config")}>Конфигурация</button>
+                        <button type="button" className=${`tab-btn ${modelDetailTab === "history" ? "active" : ""}`} onClick=${() => setModelDetailTab("history")}>История</button>
+                      </div>
+
+                      ${modelDetailLoading && !selectedModelDetail
+                        ? html`<p className="empty-state">Loading model details...</p>`
+                        : modelDetailTab === "overview"
+                          ? html`
+                              <section className="detail-content">
+                                ${selectedModelDetail && html`
+                                  <section className="detail-section">
+                                    <h4>STATE</h4>
+                                    <div className="state-cards">
+                                      <article className="state-card"><span>Health</span><strong className=${getHealthColor(getModelHealth(selectedModelDetail))}>${getModelHealth(selectedModelDetail)}</strong></article>
+                                      <article className="state-card"><span>Type</span><strong>${selectedModelDetail.model_type || "--"}</strong></article>
+                                      <article className="state-card"><span>Region</span><strong>${selectedModelDetail.region || "--"}</strong></article>
+                                      <article className="state-card"><span>Horizon</span><strong>${selectedModelDetail.horizon || "--"}</strong></article>
+                                    </div>
+                                  </section>
+
+                                  <section className="detail-section">
+                                    <h4>KEY METRICS</h4>
+                                    <div className="metrics-cards">
+                                      <article className="metric-card"><span>MAPE</span><strong>${selectedModelDetail.mape !== null && selectedModelDetail.mape !== undefined ? `${Number(selectedModelDetail.mape).toFixed(2)}%` : "--"}</strong></article>
+                                      <article className="metric-card"><span>Runs</span><strong>${selectedModelDetail.run_count || 0}</strong></article>
+                                      <article className="metric-card"><span>Avg Runtime</span><strong>${formatSeconds(selectedModelDetail.avg_runtime_s)}</strong></article>
+                                      <article className="metric-card"><span>Success Rate</span><strong>${selectedModelDetail.success_rate !== null && selectedModelDetail.success_rate !== undefined ? `${Number(selectedModelDetail.success_rate).toFixed(1)}%` : "--"}</strong></article>
+                                    </div>
+                                  </section>
+
+                                  <section className="detail-section">
+                                    <h4>ATTRIBUTES</h4>
+                                    <dl>
+                                      <div><dt>model_id</dt><dd className="mono">${selectedModelDetail.model_id}</dd></div>
+                                      <div><dt>Last run</dt><dd>${formatDateTime(selectedModelDetail.last_run_at ? selectedModelDetail.last_run_at * 1000 : null)}</dd></div>
+                                      <div><dt>Updated</dt><dd>${formatDateTime(selectedModelDetail.updated_at ? selectedModelDetail.updated_at * 1000 : null)}</dd></div>
+                                    </dl>
+                                  </section>
+
+                                  <div className="detail-actions">
+                                    <button type="button" className="primary-btn">Запустить прогноз</button>
+                                    <button type="button" className="ghost-btn">MLflow</button>
+                                  </div>
+                                `}
+                              </section>
+                            `
+                          : modelDetailTab === "config"
+                            ? html`
+                                <section className="detail-content">
+                                  ${selectedModelDetail && html`
+                                    <section className="detail-section">
+                                      <h4>PARAMETERS</h4>
+                                      <dl>
+                                        <div><dt>seasonality_mode</dt><dd>${selectedModelDetail.seasonality_mode || "--"}</dd></div>
+                                        <div><dt>yearly_seasonality</dt><dd>${selectedModelDetail.yearly_seasonality !== null ? String(selectedModelDetail.yearly_seasonality) : "--"}</dd></div>
+                                        <div><dt>weekly_seasonality</dt><dd>${selectedModelDetail.weekly_seasonality !== null ? String(selectedModelDetail.weekly_seasonality) : "--"}</dd></div>
+                                        <div><dt>daily_seasonality</dt><dd>${selectedModelDetail.daily_seasonality !== null ? String(selectedModelDetail.daily_seasonality) : "--"}</dd></div>
+                                      </dl>
+                                    </section>
+
+                                    ${selectedModelDetail.scada_sources && html`
+                                      <section className="detail-section">
+                                        <h4>SCADA SOURCES</h4>
+                                        <div className="sources-list">
+                                          ${(Array.isArray(selectedModelDetail.scada_sources) ? selectedModelDetail.scada_sources : []).map((source) => html`<span key=${source} className="source-tag">${source}</span>`)}
+                                        </div>
+                                      </section>
+                                    `}
+
+                                    <section className="detail-section">
+                                      <h4>RAW CONFIG</h4>
+                                      <pre className="json-viewer">${JSON.stringify(selectedModelDetail.raw_config || {}, null, 2)}</pre>
+                                    </section>
+
+                                    <div className="detail-actions">
+                                      <button type="button" className="ghost-btn">Export config</button>
+                                    </div>
+                                  `}
+                                </section>
+                              `
+                            : html`
+                                <section className="detail-content">
+                                  ${modelRunsLoading
+                                    ? html`<p className="empty-state">Loading run history...</p>`
+                                    : !modelRunsHistory.length
+                                      ? html`<p className="empty-state">No runs found</p>`
+                                      : html`
+                                          <div className="runs-table-wrap">
+                                            <table className="runs-table">
+                                              <thead>
+                                                <tr>
+                                                  <th>Started</th>
+                                                  <th>Duration</th>
+                                                  <th>Status</th>
+                                                  <th>MAPE</th>
+                                                  <th>Quality</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody>
+                                                ${modelRunsHistory.map((run) => html`
+                                                  <tr key=${run.run_id || run.started_at}>
+                                                    <td>${formatDateTime(run.started_at ? run.started_at * 1000 : null)}</td>
+                                                    <td className="mono">${formatSeconds(run.duration_s)}</td>
+                                                    <td><span className=${`state-badge ${run.status === "success" ? "state-done-success" : "state-done-error"}`}>${run.status}</span></td>
+                                                    <td>${run.mape !== null && run.mape !== undefined ? `${Number(run.mape).toFixed(2)}%` : "--"}</td>
+                                                    <td>${run.quality || "--"}</td>
+                                                  </tr>
+                                                `)}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                          <div className="runs-stats">
+                                            <span>Total runs: ${modelRunsHistory.length}</span>
+                                            <span>Successful: ${modelRunsHistory.filter((r) => r.status === "success").length}</span>
+                                            <span>Failed: ${modelRunsHistory.filter((r) => r.status === "failed").length}</span>
+                                          </div>
+                                        `}
+                                </section>
+                              `}
+                    </aside>
+                  `}
+                </div>
+              </section>
+            </section>
+          `;
+        }
+
+        return html`
+          <section className="tasks-layout">
+            <aside className="sidebar">
+              <div className="sidebar-section">
+                <h3>Очереди</h3>
+                ${queues.map((queue) => html`
+                  <button key=${queue.name} type="button" className="sidebar-item" onClick=${() => setFilters((current) => ({ ...current, state: queue.kind === "dead" ? "done_error" : current.state }))}>
+                    <span className=${`queue-dot ${queue.kind}`}></span>
+                    <span className="sidebar-label">${queue.name}</span>
+                    <strong>${queue.count}</strong>
+                  </button>
+                `)}
+              </div>
+              <div className="sidebar-section">
+                <h3>Воркеры</h3>
+                ${workers.map((worker) => html`
+                  <button key=${worker.name} type="button" className="sidebar-item" onClick=${() => setFilters((current) => ({ ...current, worker: worker.name === "taskiq-pool" ? "all" : worker.name }))}>
+                    <span className=${`worker-dot ${worker.status}`}></span>
+                    <span className="sidebar-label">${worker.name}</span>
+                    <small>${worker.status}</small>
+                  </button>
+                `)}
+              </div>
+              <div className="sidebar-section">
+                <h3>Быстрые фильтры</h3>
+                <button type="button" className="sidebar-item" onClick=${() => setFilters((current) => ({ ...current, state: "processing" }))}>
+                  <span className="sidebar-label">Выполняются</span>
+                  <strong>${quickFilters.active || 0}</strong>
+                </button>
+                <button type="button" className="sidebar-item" onClick=${() => setFilters((current) => ({ ...current, state: "start" }))}>
+                  <span className="sidebar-label">Ожидают</span>
+                  <strong>${quickFilters.queued || 0}</strong>
+                </button>
+                <button type="button" className="sidebar-item" onClick=${() => setFilters((current) => ({ ...current, state: "done_error" }))}>
+                  <span className="sidebar-label">Ошибки</span>
+                  <strong>${quickFilters.errors_24h || 0}</strong>
+                </button>
+              </div>
+              <div className="broker-foot">
+                <small>Broker: ${brokerInfo.name || "Redis"}</small>
+                <small>tasks/min: ${brokerInfo.tasks_per_min || 0}</small>
+                <small>uptime: ${formatUptime(brokerInfo.uptime_s || 0)}</small>
+              </div>
+            </aside>
+
+            <section className="tasks-main">
+              <div className="toolbar-card">
+                <div className="section-head between compact">
+                  <div>
+                    <h2>Tasks</h2>
+                    <p>Мониторинг задач прогнозирования в реальном времени.</p>
+                  </div>
+                  <span className="error-text">${tasksError}</span>
+                </div>
+                <div className="chip-row">
+                  ${STATE_CHIPS.map((chip) => html`
+                    <button key=${chip.key} type="button" className=${`state-chip ${filters.state === chip.key ? "active" : ""}`} onClick=${() => { setFilters((current) => ({ ...current, state: chip.key })); setPage(1); }}>
+                      ${chip.label}
+                    </button>
+                  `)}
+                </div>
+                <div className="toolbar-row">
+                  <input className="search-input" placeholder="Поиск task_id, object_reference, model_id..." value=${searchInput} onInput=${(event) => setSearchInput(event.target.value)} />
+                  <select value=${filters.worker} onChange=${(event) => { setFilters((current) => ({ ...current, worker: event.target.value })); setPage(1); }}>
+                    <option value="all">All workers</option>
+                    ${tasksResponse.available_workers.map((worker) => html`<option key=${worker} value=${worker}>${worker}</option>`)}
+                  </select>
+                  <select value=${filters.model} onChange=${(event) => { setFilters((current) => ({ ...current, model: event.target.value })); setPage(1); }}>
+                    <option value="all">All models</option>
+                    ${tasksResponse.available_models.map((model) => html`<option key=${model} value=${model}>${model}</option>`)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="stat-row monitor-card">
+                <span>Total: ${tasksResponse.counts.total || 0}</span>
+                <span>start: ${tasksResponse.counts.start || 0}</span>
+                <span>processing: ${tasksResponse.counts.processing || 0}</span>
+                <span>done ✓: ${tasksResponse.counts.done_success || 0}</span>
+                <span>done ✗: ${tasksResponse.counts.done_error || 0}</span>
+                <span>expired: ${tasksResponse.counts.expired || 0}</span>
+                <span>avg runtime: ${formatSeconds(tasksResponse.avg_runtime_s)}</span>
+                <span>tasks/min: ${tasksResponse.tasks_per_min || 0}</span>
+                <span>обновлено: ${formatClock(tasksResponse.updated_at)}</span>
+              </div>
+
+              <div className=${`table-shell ${selectedTaskId ? "with-detail" : ""}`}>
+                <div className="table-panel monitor-card">
+                  <div className="table-wrap">
+                    <table className="tasks-table">
+                      <thead>
+                        <tr>
+                          <th>task_id</th>
+                          <th>object_reference</th>
+                          <th>model_id</th>
+                          <th>state</th>
+                          <th>received</th>
+                          <th>runtime</th>
+                          <th>src</th>
+                          <th>worker</th>
+                          <th>action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${tasksLoading
+                          ? html`<tr><td colSpan="9" className="empty-row">Loading tasks...</td></tr>`
+                          : !tasksResponse.items.length
+                            ? html`<tr><td colSpan="9" className="empty-row">Задачи не найдены</td></tr>`
+                            : tasksResponse.items.map((task) => html`
+                                <tr key=${task.task_id} className=${`${selectedTaskId === task.task_id ? "selected-row" : ""} ${task.display_state === "expired" ? "expired-row" : ""}`} onClick=${() => setSelectedTaskId(task.task_id)}>
+                                  <td className="mono clickable" title=${task.task_id}>
+                                    <button type="button" className="linkish" onClick=${(event) => { event.stopPropagation(); copyTaskId(task.task_id); }}>
+                                      ${truncateMiddle(task.task_id)}
+                                    </button>
+                                    ${copiedTaskId === task.task_id && html`<small className="copied-note">Copied!</small>`}
+                                  </td>
+                                  <td title=${task.object_reference}>${task.object_reference}</td>
+                                  <td className="mono">${task.model_type}</td>
+                                  <td>
+                                    <div className=${`state-badge ${classForDisplayState(task.display_state)}`}>
+                                      ${task.display_state === "processing" && html`<span className="pulse-dot"></span>`}
+                                      <span>${task.display_state}</span>
+                                    </div>
+                                    ${task.display_state === "processing" && html`<div className="mini-progress"><span style=${{ width: `${progressPercent(task, tasksResponse.avg_runtime_s)}%` }}></span></div>`}
+                                  </td>
+                                  <td title=${formatDateTime(task.received_at)}>${formatRelative(task.received_at)}</td>
+                                  <td className="mono">${formatSeconds(task.runtime_s)}</td>
+                                  <td>
+                                    <div className="src-icons">
+                                      ${Object.entries(task.sources || {}).map(([name, value]) => html`<span key=${name} className=${`src-pill ${name} ${value.enabled ? "enabled" : "disabled"}`}>${sourceLabel(name)}</span>`)}
+                                    </div>
+                                  </td>
+                                  <td>${task.worker || "unassigned"}</td>
+                                  <td>
+                                    ${task.actions.retry
+                                      ? html`<button type="button" className="table-action" onClick=${(event) => { event.stopPropagation(); retryTask(task); }}>Retry</button>`
+                                      : html`<button type="button" className="table-action muted" disabled>${task.display_state === "processing" ? "Revoke" : "-"}</button>`}
+                                  </td>
+                                </tr>
+                              `)}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="table-footer">
+                    <span>Showing ${startRow}-${endRow} of ${tasksResponse.total || 0}</span>
+                    <div className="pagination">
+                      <button type="button" disabled=${page <= 1} onClick=${() => setPage((current) => Math.max(current - 1, 1))}>Prev</button>
+                      <span>${page} / ${pageCount}</span>
+                      <button type="button" disabled=${page >= pageCount} onClick=${() => setPage((current) => Math.min(current + 1, pageCount))}>Next</button>
+                    </div>
+                  </div>
+                </div>
+
+                ${selectedTaskId && html`
+                  <aside className="detail-panel monitor-card">
+                    <div className="detail-head">
+                      <div>
+                        <h3>${(selectedTask?.task_name || "run_forecast").replace("forecasting.", "")}</h3>
+                        <p>${selectedTask?.model_type || "--"}</p>
+                      </div>
+                      <button type="button" className="close-btn" onClick=${() => { setSelectedTaskId(""); setSelectedTask(null); }}>✕</button>
+                    </div>
+
+                    ${detailLoading && !selectedTask
+                      ? html`<p className="empty-state">Loading task details...</p>`
+                      : selectedTask && html`
+                          <section className="detail-section">
+                            <h4>TASK</h4>
+                            <dl>
+                              <div><dt>task_id</dt><dd className="mono">${selectedTask.task_id}</dd></div>
+                              <div><dt>state</dt><dd>${selectedTask.display_state}</dd></div>
+                              <div><dt>worker</dt><dd>${selectedTask.worker || "unassigned"}</dd></div>
+                              <div><dt>redis TTL</dt><dd>${selectedTask.expires_at ? `${Math.max(Math.floor((new Date(selectedTask.expires_at).getTime() - Date.now()) / 1000), 0)}s` : "--"}</dd></div>
+                            </dl>
+                          </section>
+
+                          <section className="detail-section">
+                            <h4>REQUEST</h4>
+                            <pre className="json-viewer compact">${JSON.stringify(selectedTaskRequest, null, 2)}</pre>
+                          </section>
+
+                          <section className="detail-section">
+                            <h4>TIMING</h4>
+                            <dl>
+                              <div><dt>received</dt><dd>${formatDateTime(selectedTask.received_at)}</dd></div>
+                              <div><dt>runtime</dt><dd>${formatSeconds(selectedTask.runtime_s)}</dd></div>
+                            </dl>
+                          </section>
+
+                          <section className="detail-section">
+                            <h4>SOURCES</h4>
+                            <div className="detail-pills">
+                              ${Object.entries(selectedTask.sources || {}).map(([name, value]) => html`<span key=${name} className=${`detail-pill ${name} ${value.enabled ? "enabled" : "disabled"}`}>${sourceLabel(name)} ${sourceName(name)} ${value.enabled ? "✓" : "—"}</span>`)}
+                            </div>
+                          </section>
+
+                          <section className="detail-section">
+                            <h4>POLL HISTORY</h4>
+                            <div className="history-list">
+                              ${(selectedTask.poll_history || []).map((entry, idx) => html`<div key=${`${entry.timestamp}-${idx}`} className="history-row"><span>${formatClock(entry.timestamp)}</span><strong>${entry.status}</strong><small>${entry.state}</small></div>`)}
+                            </div>
+                          </section>
+
+                          ${selectedTask.display_state === "done 200" && html`
+                            <section className="detail-section">
+                              <h4>RESULT</h4>
+                              <div className="result-metrics">
+                                <article><span>HTTP</span><strong>200</strong></article>
+                                <article><span>quality</span><strong>${selectedTask.quality ?? "--"}</strong></article>
+                                <article><span>confidence</span><strong>${selectedTask.model_confidence ?? "--"}</strong></article>
+                              </div>
+                              <div className="result-preview">
+                                <table>
+                                  <thead><tr><th>timestamp_ms</th><th>value</th><th>qds</th></tr></thead>
+                                  <tbody>
+                                    ${(selectedTask.result_preview || []).map((row, idx) => html`<tr key=${idx}><td className="mono">${row[0]}</td><td>${row[1]}</td><td>${row[2]}</td></tr>`)}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </section>
+                          `}
+
+                          ${selectedTask.display_state.startsWith("done ") && selectedTask.display_state !== "done 200" && html`
+                            <section className="detail-section">
+                              <h4>ERROR</h4>
+                              <div className="error-banner">${selectedTask.error || selectedTaskResult?.message || "Request failed"}</div>
+                            </section>
+                          `}
+
+                          <div className="detail-actions">
+                            <button type="button" className="ghost-btn" disabled title="Broker-level revoke is not wired yet">Revoke</button>
+                            <button type="button" className="ghost-btn" onClick=${() => copyTaskId(selectedTask.task_id)}>Copy task_id</button>
+                            <button type="button" className="primary-btn" disabled=${!selectedTask.actions.retry} onClick=${() => retryTask(selectedTask)}>Retry</button>
+                          </div>
+                        `}
+                  </aside>
+                `}
+              </div>
+            </section>
+          </section>
+        `;
+      }, [activeTab, workers, queues, runtimeStatus, registeredModels, selectedModelId, selectedModelConfig, modelsError, tasksResponse, tasksLoading, selectedTaskId, selectedTask, detailLoading, copiedTaskId, filters.state, filters.worker, filters.model, searchInput, page, modelsData, filteredModels, modelsLoading, selectedModelDetail, modelDetailLoading, modelRunsHistory, modelRunsLoading, modelDetailTab, modelsViewMode, modelsHealthFilter, modelsListSearch, modelsFilterSidebar, modelStats]);
+
+      return html`
+        <div className="monitor-shell">
+          <header className="topbar">
+            <div className="brand-block">
+              <strong>ML Forecast Platform</strong>
+              <nav className="top-tabs">
+                ${TAB_ITEMS.map((tab) => html`<button key=${tab} type="button" className=${`tab-btn ${activeTab === tab ? "active" : ""}`} onClick=${() => setActiveTab(tab)}>${tab}</button>`)}
+              </nav>
+            </div>
+            <div className="topbar-actions">
+              <button type="button" className=${`auto-toggle ${autoRefresh ? "active" : ""}`} onClick=${() => setAutoRefresh((current) => !current)}>↻ auto</button>
+              <span className=${`live-indicator ${liveOk ? "online" : "offline"}`}>● live</span>
+              <span className="topbar-time">${new Date().toLocaleTimeString("ru-RU")}</span>
+              <button type="button" className="primary-btn" onClick=${() => { setSubmitError(""); setIsNewTaskOpen(true); }}>+ New task</button>
+            </div>
+          </header>
+
+          <main className="monitor-content">${content}</main>
+
+          ${isNewTaskOpen && html`
+            <div className="modal-backdrop" onClick=${() => setIsNewTaskOpen(false)}>
+              <div className="modal-card" onClick=${(event) => event.stopPropagation()}>
+                <div className="detail-head">
+                  <div>
+                    <h3>New forecast task</h3>
+                    <p>Создание новой задачи через POST /predict</p>
+                  </div>
+                  <button type="button" className="close-btn" onClick=${() => setIsNewTaskOpen(false)}>✕</button>
+                </div>
+                <div className="form-grid">
+                  <label><span>Task name</span><input value="forecasting.run_forecast" disabled /></label>
+                  <label>
+                    <span>Queue</span>
+                    <select value=${newTaskForm.queue} onChange=${(event) => setNewTaskForm((current) => ({ ...current, queue: event.target.value }))}>
+                      <option value="forecast.default">forecast.default</option>
+                      <option value="forecast.priority">forecast.priority</option>
+                    </select>
+                  </label>
+                  <label className="wide"><span>object_reference</span><input value=${newTaskForm.object_reference} onInput=${(event) => setNewTaskForm((current) => ({ ...current, object_reference: event.target.value }))} /></label>
+                  <label className="wide">
+                    <span>model_id</span>
+                    <select value=${newTaskForm.model_id} onChange=${(event) => setNewTaskForm((current) => ({ ...current, model_id: event.target.value }))}>
+                      <option value="none">none</option>
+                      ${registeredModels.map((model) => html`<option key=${model.model_id} value=${model.model_id}>${model.model_id}</option>`)}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Priority</span>
+                    <select value=${newTaskForm.priority} onChange=${(event) => setNewTaskForm((current) => ({ ...current, priority: event.target.value }))}>
+                      <option value="normal">normal</option>
+                      <option value="high">high</option>
+                    </select>
+                  </label>
+                  <label><span>countdown</span><input value=${newTaskForm.countdown} onInput=${(event) => setNewTaskForm((current) => ({ ...current, countdown: event.target.value }))} /></label>
+                  <label><span>expires</span><input value=${newTaskForm.expires} onInput=${(event) => setNewTaskForm((current) => ({ ...current, expires: event.target.value }))} /></label>
+                  <label className="wide"><span>Дополнительные kwargs (JSON)</span><textarea rows="6" value=${newTaskForm.kwargs} onInput=${(event) => setNewTaskForm((current) => ({ ...current, kwargs: event.target.value }))}></textarea></label>
+                </div>
+                <p className="hint-text">Текущий backend принимает для POST /predict только object_reference и model_id. Остальные поля оставлены как UI scaffold.</p>
+                <p className="error-text">${submitError}</p>
+                <div className="modal-actions">
+                  <button type="button" className="ghost-btn" onClick=${() => setIsNewTaskOpen(false)}>Отмена</button>
+                  <button type="button" className="primary-btn" onClick=${() => submitNewTask()}>Отправить POST /predict</button>
+                </div>
               </div>
             </div>
-
-            <div className="actions between">
-              <button type="button" className="ghost" onClick=${() => switchStep(3)}>Назад</button>
-              <button type="button" disabled=${!canStep5} onClick=${() => switchStep(5)}>Открыть результаты</button>
-            </div>
-          </section>
-        `}
-
-        ${step === 5 && html`
-          <section className="panel-card">
-            <h2>Экран 5 — Результаты</h2>
-
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Модель</th>
-                    <th>MAPE</th>
-                    <th>RMSE</th>
-                    <th>MAE</th>
-                    <th>R²</th>
-                    <th>Макс. откл.</th>
-                    <th>Итоговый скор</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${resultRows.map((row) => html`
-                    <tr key=${row.model}>
-                      <td>${row.model}</td>
-                      <td>${row.mape.toFixed(2)}</td>
-                      <td>${row.rmse.toFixed(3)}</td>
-                      <td>${row.mae.toFixed(3)}</td>
-                      <td>${row.r2.toFixed(3)}</td>
-                      <td>${row.maxDeviation.toFixed(3)}</td>
-                      <td><strong>${row.score.toFixed(2)}</strong></td>
-                    </tr>
-                  `)}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="chart-box">
-              <h3>Прогноз vs факт (все модели)</h3>
-              ${!chartModelLines
-                ? html`<p className="empty">Сначала запустите модели на шаге 4.</p>`
-                : html`
-                    <svg viewBox="0 0 900 260" className="mini-chart" preserveAspectRatio="none">
-                      <polyline points=${chartModelLines.actual} fill="none" stroke="#1f2f3a" strokeWidth="3.2" />
-                      ${chartModelLines.models.map((item, idx) => {
-                        const colors = ["#b85c38", "#2f6b59", "#8062d6", "#3a90b8"];
-                        return html`<polyline key=${item.model} points=${item.line} fill="none" stroke=${colors[idx % colors.length]} strokeWidth="2.4" />`;
-                      })}
-                    </svg>
-                    <div className="legend">
-                      <span><i style=${{ background: "#1f2f3a" }}></i>Факт</span>
-                      ${chartModelLines.models.map((item, idx) => {
-                        const colors = ["#b85c38", "#2f6b59", "#8062d6", "#3a90b8"];
-                        return html`<span key=${item.model}><i style=${{ background: colors[idx % colors.length] }}></i>${item.model}</span>`;
-                      })}
-                    </div>
-                  `}
-            </div>
-
-            <div className="table-wrap tall">
-              <h3>Отклонения по датам / точкам</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Дата/точка</th>
-                    <th>Факт</th>
-                    ${resultRows.map((row) => html`<th key=${`pred-${row.model}`}>${row.model}</th>`)}
-                    ${resultRows.map((row) => html`<th key=${`q-${row.model}`}>Качество ${row.model}</th>`)}
-                  </tr>
-                </thead>
-                <tbody>
-                  ${deviationRows.map((row) => html`
-                    <tr key=${row.idx}>
-                      <td>${row.dateLabel}</td>
-                      <td>${row.actual.toFixed(3)}</td>
-                      ${resultRows.map((item) => html`<td key=${`${row.idx}-${item.model}`}>${Number(row[`${item.model}_pred`] || 0).toFixed(3)}</td>`)}
-                      ${resultRows.map((item) => html`<td key=${`${row.idx}-${item.model}-q`} className=${`quality ${row[`${item.model}_quality`]}`}>${row[`${item.model}_quality`]}</td>`)}
-                    </tr>
-                  `)}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="actions between">
-              <button type="button" className="ghost" onClick=${() => switchStep(4)}>Назад</button>
-            </div>
-          </section>
-        `}
-      </section>
-    </div>
-  `;
+          `}
+        </div>
+      `;
 }
 
-createRoot(document.getElementById("root")).render(html`<${App} />`);
+createRoot(document.getElementById("root")).render(React.createElement(App));
