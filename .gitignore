@@ -7,6 +7,7 @@ models_archive/
 **/*.pdf
 .DS_Store
 local/models/
-
+artifacts
 local/
 .DS_Store
+mlflow_artifacts
