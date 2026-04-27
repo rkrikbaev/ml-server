@@ -1,5 +1,5 @@
 services:
-  ml_model:
+  model-server:
     image: fpcloud/ml:1.0.0
     build:
       context: .
@@ -11,7 +11,7 @@ services:
     command: >
       bash -c "
         taskiq worker api.broker:broker --workers 8 &
-        python3.13 -u -m uvicorn api.server:app --host 0.0.0.0 --port 8000 &
+        python -u -m uvicorn api.server:app --host 0.0.0.0 --port 8000 &
         wait -n
       "
     ports:
