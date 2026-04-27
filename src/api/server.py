@@ -164,6 +164,20 @@ async def ui_models() -> JSONResponse:
         else:
             horizon_category = "long"
         
+        # Detect sources from config
+        has_weather = False
+        has_cmms = False
+        for cfg in [raw_config] + [raw_config.get(k, {}) for k in ("short", "medium", "long")]:
+            if isinstance(cfg, dict):
+                if any(cfg.get(k) not in (None, "") for k in ("weather_url", "weather_lat", "weather_lon")):
+                    has_weather = True
+                if cfg.get("cmms_url") not in (None, ""):
+                    has_cmms = True
+
+        # Normalize health value
+        health_raw = stats.get("health_status", "ok")
+        health = {"ok": "ok", "warning": "warning", "warn": "warning", "error": "error", "err": "error"}.get(health_raw, "ok")
+
         model_items.append({
             "model_id": model_id,
             "model_type": model_type,
@@ -172,16 +186,18 @@ async def ui_models() -> JSONResponse:
             "region": region,
             "config_path": str(config_path),
             "config_updated_at": int(config_path.stat().st_mtime * 1000),
-            "health_status": stats.get("health_status", "ok"),
-            "total_runs": stats.get("total_runs", 0),
-            "successful_runs": stats.get("successful_runs", 0),
-            "failed_runs": stats.get("failed_runs", 0),
+            "health": health,
+            "run_count": stats.get("total_runs", 0),
             "success_rate": stats.get("success_rate", 0),
             "avg_runtime_s": stats.get("avg_runtime_s", 0),
-            "avg_mape": stats.get("avg_mape"),
+            "mape": stats.get("avg_mape"),
             "last_run_at": stats.get("last_run_at"),
             "last_run_state": stats.get("last_run_state"),
-            "last_run_status_code": stats.get("last_run_status_code"),
+            "sources": {
+                "scada": {"enabled": True},
+                "weather": {"enabled": has_weather},
+                "cmms": {"enabled": has_cmms},
+            },
         })
     
     return JSONResponse(
@@ -190,6 +206,93 @@ async def ui_models() -> JSONResponse:
             "models": model_items,
             "total": len(model_items),
             "updated_at": analytics.get("updated_at"),
+        },
+        status_code=200,
+    )
+
+
+@app.get("/ui/models/detail")
+async def ui_model_detail(model_id: str = Query(..., min_length=1)) -> JSONResponse:
+    """Детальная информация о конкретной модели"""
+    models_base_path = Path(getenv("MODELS_PATH", "/workspace/models"))
+    config_path = models_base_path / model_id / "config.json"
+
+    raw_config: dict = {}
+    if config_path.is_file():
+        try:
+            with open(config_path) as f:
+                raw_config = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            raw_config = {}
+
+    # Flatten nested horizon section
+    flattened = raw_config.copy()
+    for key in ("short", "medium", "long"):
+        if key in raw_config and isinstance(raw_config[key], dict):
+            flattened = {**raw_config, **raw_config[key]}
+            break
+
+    analytics = get_models_analytics()
+    stats = {m["model_id"]: m for m in analytics.get("models", [])}.get(model_id, {})
+
+    health_raw = stats.get("health_status", "ok")
+    health = {"ok": "ok", "warning": "warning", "warn": "warning", "error": "error", "err": "error"}.get(health_raw, "ok")
+
+    parts = model_id.split("/")
+    model_type = parts[0] if parts else "unknown"
+
+    has_weather = any(flattened.get(k) not in (None, "") for k in ("weather_url", "weather_lat", "weather_lon"))
+    has_cmms = flattened.get("cmms_url") not in (None, "")
+
+    # Last run info
+    runs_data = get_model_runs(model_id, limit=1)
+    _runs_list = runs_data.get("runs") or []
+    last_run_task = _runs_list[0] if _runs_list else None
+    last_run = None
+    if last_run_task:
+        last_run = {
+            "task_id": last_run_task.get("task_id"),
+            "state": last_run_task.get("display_state"),
+            "worker": last_run_task.get("worker"),
+            "received_at": last_run_task.get("received_at"),
+            "object_reference": last_run_task.get("object_reference"),
+        }
+
+    # Extract SCADA archive list
+    scada_sources: list = []
+    hist = flattened.get("historical_data")
+    if isinstance(hist, list):
+        scada_sources = hist
+    elif isinstance(hist, dict):
+        scada_sources = [hist]
+
+    return JSONResponse(
+        content={
+            "status": 200,
+            "model_id": model_id,
+            "model_type": model_type,
+            "health": health,
+            "region": parts[-1] if len(parts) > 2 else "—",
+            "horizon": parts[1] if len(parts) > 1 else "—",
+            "mape": stats.get("avg_mape"),
+            "run_count": stats.get("total_runs", 0),
+            "avg_runtime_s": stats.get("avg_runtime_s", 0),
+            "success_rate": stats.get("success_rate", 0),
+            "last_run_at": stats.get("last_run_at"),
+            "last_run_state": stats.get("last_run_state"),
+            "updated_at": int(config_path.stat().st_mtime) if config_path.is_file() else None,
+            "seasonality_mode": flattened.get("seasonality_mode"),
+            "yearly_seasonality": flattened.get("yearly_seasonality"),
+            "weekly_seasonality": flattened.get("weekly_seasonality"),
+            "daily_seasonality": flattened.get("daily_seasonality"),
+            "sources": {
+                "scada": {"enabled": True},
+                "weather": {"enabled": has_weather},
+                "cmms": {"enabled": has_cmms},
+            },
+            "scada_sources": scada_sources,
+            "raw_config": raw_config,
+            "last_run": last_run,
         },
         status_code=200,
     )

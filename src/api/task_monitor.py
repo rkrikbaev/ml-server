@@ -400,13 +400,13 @@ def get_models_analytics() -> dict[str, Any]:
                     if avg_mape < 7:
                         health = "ok"
                     elif avg_mape < 12:
-                        health = "warn"
+                        health = "warning"
                     else:
-                        health = "warn"
+                        health = "error"
                 else:
                     health = "ok"
             elif last_state and last_state.startswith("done ") and last_state != "done 200":
-                health = "err"
+                health = "error"
             else:
                 health = "ok"
             
@@ -416,7 +416,7 @@ def get_models_analytics() -> dict[str, Any]:
                     last_run_dt = stats["last_run_at"] if isinstance(stats["last_run_at"], datetime) else datetime.fromisoformat(stats["last_run_at"])
                     hours_since = (now - last_run_dt).total_seconds() / 3600
                     if hours_since > 24 and health == "ok":
-                        health = "warn"
+                        health = "warning"
                 except (TypeError, ValueError):
                     pass
             
