@@ -1,6 +1,13 @@
-.PHONY: help setup-test clean-test test run-api mlflow-ui smoke-positive smoke-negative wait-api ml-model-status smoke-api
+.PHONY: help setup-test clean-test test mlflow-ui smoke-positive smoke-negative wait-api ml-model-status smoke-api
 
 MODEL_SERVICE ?= model-server
+PREDICT_URL ?= http://localhost:8030/predict
+PREDICT_MODELS_DIR ?= ../local/models
+PREDICT_MODEL_ID ?= prophet_watt_h_AKMOLA_test
+PREDICT_OBJECT_REFERENCE ?= /root/FP/PROJECT/AKMOLA/@regions/KOKSHETAU/Load/P_load/archives/out_value
+PREDICT_CONFIG_FILE ?= $(PREDICT_MODELS_DIR)/$(PREDICT_MODEL_ID)/config.yaml
+PREDICT_MAX_ATTEMPTS ?= 30
+PREDICT_POLL_INTERVAL ?= 1
 
 help:
 	@echo "🚀 ML-Server Test Environment Management"
@@ -13,9 +20,11 @@ help:
 	@echo "  make smoke-negative  - Recreate model service without SCADA stub and run negative smoke test"
 	@echo "  make ml-model-status - Show model service container status and recent logs"
 	@echo "  make smoke-api       - Check /ui/runtime-status on mapped model service port"
-	@echo "  make run-api         - Start API server"
 	@echo "  make mlflow-ui       - Start MLflow UI"
-	@echo "  make test-predict    - Test prediction endpoint"
+	@echo "  make test-predict    - Test 2-step async /predict flow"
+	@echo "                         vars: PREDICT_URL, PREDICT_MODELS_DIR, PREDICT_MODEL_ID, PREDICT_OBJECT_REFERENCE"
+	@echo "                               PREDICT_CONFIG_FILE (optional; auto-detected if omitted)"
+	@echo "                         example: make test-predict PREDICT_MODEL_ID=model2"
 	@echo "  make logs            - Show recent logs"
 	@echo "  make help            - Show this help message"
 
@@ -51,7 +60,7 @@ wait-api:
 		exit 1; \
 	fi; \
 	echo "⏳ Waiting for API to accept connections on http://localhost:$$port..."; \
-	@attempt=0; \
+	attempt=0; \
 	until curl -sS -o /dev/null "http://localhost:$$port/predict"; do \
 		attempt=$$((attempt + 1)); \
 		if [ $$attempt -ge 30 ]; then \
@@ -63,14 +72,72 @@ wait-api:
 	echo "✓ API is ready"
 
 test-predict:
-	@echo "🔍 Testing prediction endpoint..."
-	@curl -X POST http://localhost:8000/predict \
-		-H "Content-Type: application/json" \
-		-d '{"object_reference": "/KAZ/AKMOLA/@models/P_WATT", "model_id": "prophet_watt_h_AKMOLA_test"}'
-
-run-api:
-	@echo "🚀 Starting API server..."
-	@python3 -m uvicorn src.api.main:app --reload --port 8000
+	@echo "🔍 Testing 2-step /predict flow..."
+	@api_url="$(PREDICT_URL)"; \
+	model_id="$(PREDICT_MODEL_ID)"; \
+	model_dir="$(PREDICT_MODELS_DIR)/$$model_id"; \
+	config_file="$(PREDICT_CONFIG_FILE)"; \
+	target_config_file="$$model_dir/config.yaml"; \
+	if [ ! -d "$$model_dir" ]; then \
+		echo "Model directory not found: $$model_dir"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$$config_file" ]; then \
+		if [ -f "$$model_dir/config.yaml" ]; then \
+			config_file="$$model_dir/config.yaml"; \
+		else \
+			config_file=$$(find "$$model_dir" -maxdepth 1 -type f \( -name "*.yaml" -o -name "*.yml" \) | head -n 1); \
+		fi; \
+	fi; \
+	if [ -f "$$config_file" ] && [ "$$config_file" != "$$target_config_file" ]; then \
+		cp "$$config_file" "$$target_config_file"; \
+		echo "Synced config to $$target_config_file"; \
+		config_file="$$target_config_file"; \
+	fi; \
+	object_reference="$(PREDICT_OBJECT_REFERENCE)"; \
+	if [ "$${SCADA_STUB_ENABLED:-true}" = "false" ]; then \
+		if [ ! -f "$$config_file" ]; then \
+			echo "Config file not found. Checked: $(PREDICT_CONFIG_FILE), $$model_dir/config.yaml and first yaml in model dir"; \
+			exit 1; \
+		fi; \
+		object_reference=$$(grep -m1 -E '^  object_reference:' "$$config_file" | sed -E 's/^  object_reference:[[:space:]]*//'); \
+		if [ -z "$$object_reference" ]; then \
+			echo "Could not read object_reference from $$config_file"; \
+			exit 1; \
+		fi; \
+		echo "Using object_reference from config ($$config_file): $$object_reference"; \
+	fi; \
+	payload="{\"object_reference\": \"$$object_reference\", \"model_id\": \"$$model_id\"}"; \
+	echo "[1/2] Starting predict task..."; \
+	start_resp=$$(curl -sS -X POST "$$api_url" -H "Content-Type: application/json" -d "$$payload"); \
+	task_id=$$(echo "$$start_resp" | /Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -c 'import json,sys; print(json.load(sys.stdin).get("task_id", ""))' 2>/dev/null || true); \
+	if [ -z "$$task_id" ]; then \
+		echo "Failed to get task_id from start response:"; \
+		echo "$$start_resp"; \
+		exit 1; \
+	fi; \
+	echo "Task created: $$task_id"; \
+	echo "[2/2] Polling task result..."; \
+	attempt=0; \
+	while [ $$attempt -lt $(PREDICT_MAX_ATTEMPTS) ]; do \
+		poll_resp=$$(curl -sS -X POST "$$api_url" -H "Content-Type: application/json" -d "{\"task_id\": \"$$task_id\"}"); \
+		status=$$(echo "$$poll_resp" | /Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))' 2>/dev/null || true); \
+		state=$$(echo "$$poll_resp" | /Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))' 2>/dev/null || true); \
+		if [ "$$status" = "200" ]; then \
+			echo "✓ Predict completed (state=$$state)"; \
+			echo "$$poll_resp" | /Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -m json.tool; \
+			exit 0; \
+		fi; \
+		if [ "$$status" != "202" ]; then \
+			echo "Predict failed with status=$$status:"; \
+			echo "$$poll_resp"; \
+			exit 1; \
+		fi; \
+		attempt=$$((attempt + 1)); \
+		sleep $(PREDICT_POLL_INTERVAL); \
+	done; \
+	echo "Timeout waiting for predict task completion"; \
+	exit 1
 
 mlflow-ui:
 	@echo "📊 Starting MLflow UI..."

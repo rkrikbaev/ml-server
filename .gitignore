@@ -11,3 +11,4 @@ artifacts
 local/
 .DS_Store
 mlflow_artifacts
+.env
