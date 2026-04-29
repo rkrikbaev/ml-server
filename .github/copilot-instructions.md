@@ -49,12 +49,43 @@ Response formatting helpers are centralized in src/api/message.py and should be 
 
 ## Model-loading conventions
 - Models are expected under /workspace/models in container runtime.
-- model_id is a relative identifier/path used by loader logic.
+
+There are two separate identifiers:
+1. model_id is a business key: stable, human-readable, and associated with an object/scenario.
+2. run_id is a technical training identifier from MLflow.
+
+Do not replace model_id with run_id. Maintain an explicit model_id -> run_id link.
+The model_id stays stable, while MLflow version/alias can change.
+
+Model ID rules:
+- Treat model_id as an opaque user-defined identifier.
+- Do not parse model_id, derive semantics from it, or use its parts in downstream logic.
+- Do not normalize model_id (no case conversion, trimming, slugification, or rewriting).
+- Uniqueness of model_id is controlled by the user side.
 - model_id == none means online mode.
-- init_model in src/api/forecast/model.py currently expects:
-  - xgb_model.json for xgb models
-  - prophet_model.json for prophet models
-- Keep model file naming and model_id format aligned with init_model.
+
+Inference resolution rules:
+- Inference input remains model_id (plus object_reference when required by API).
+- Resolve model by model_id and MLflow alias/stage (prefer explicit alias like Production).
+- Avoid loading "latest run" implicitly.
+
+## MLflow tracking conventions
+For each training run, log data in consistent groups:
+- params: training hyperparameters.
+- metrics: quality metrics (for example MAE/RMSE/MAPE).
+- tags: business metadata, including model_id and object_reference.
+- artifacts: serialized model, preprocessing assets, feature schema, and runtime config snapshot.
+
+Reproducibility metadata should be logged for every run:
+- Git commit SHA.
+- Dataset or data snapshot identifier.
+- Python/dependency versions.
+- Feature list/schema version.
+
+Registry usage:
+- Treat model_id as the stable business identifier.
+- Treat MLflow versions/aliases as deploy-time selectors.
+- Production serving should resolve model_id -> alias/stage -> concrete model artifact.
 
 ## Validation and schema conventions
 - object_reference must be non-empty and contain / or \\ (validated in src/api/data/predict.py).
@@ -67,7 +98,8 @@ Response formatting helpers are centralized in src/api/message.py and should be 
 - External integrations are configured via src/api/config.py and api/send modules:
   - NDC_URLS
   - RZ_URL (RZ_API_URL env override)
-- MLflow is available in Docker for experiment tracking and artifacts, but inference reads model files from /workspace/models.
+- MLflow is available in Docker for experiment tracking and registry operations.
+- Runtime inference may load from /workspace/models, but selection logic must still honor model_id and configured MLflow alias/stage mapping.
 
 ## Run and test workflows
 Recommended (Docker):
