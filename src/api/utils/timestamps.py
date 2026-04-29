@@ -3,7 +3,7 @@
 
 
 from typing import List, Tuple
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from api import GMT_TO_ASTANA_HOURS
 
@@ -29,10 +29,13 @@ def generate_timestamp(mode: str) -> Tuple[int, int]:
     match mode:
         case "short":
             from_tp = datetime(d.year, d.month, d.day, 0, 0, 0, 0, utc)
-            to_tp = datetime(d.year, d.month, d.day + 3, 0, 0, 0, 0, utc)
+            to_tp = from_tp + timedelta(days=3)
         case "medium":
             from_tp = datetime(d.year, d.month, 1, 0, 0, 0, 0, utc)
-            to_tp = datetime(d.year, d.month + 1, 1, 0, 0, 0, 0, utc)
+            if d.month == 12:
+                to_tp = datetime(d.year + 1, 1, 1, 0, 0, 0, 0, utc)
+            else:
+                to_tp = datetime(d.year, d.month + 1, 1, 0, 0, 0, 0, utc)
         case _:  # "long"
             from_tp = datetime(d.year, 1, 1, 0, 0, 0, 0, utc)
             to_tp = datetime(d.year + 1, 1, 1, 0, 0, 0, 0, utc)

@@ -144,12 +144,19 @@ async def ui_models() -> JSONResponse:
         # Получаем статистику из analytics
         stats = analytics_by_id.get(model_id, {})
         
-        # Парсим model_id на составляющие (type/horizon/region примерно)
-        # Формат предположительно: prophet/watt/h/AKMOLA или similar
-        parts = model_id.split("/")
-        model_type = parts[0] if len(parts) > 0 else "unknown"
-        horizon = parts[1] if len(parts) > 1 else "unknown"
-        region = parts[-1] if len(parts) > 2 else "unknown"
+        # model_id is opaque; optional metadata is read from config only.
+        flattened = raw_config.copy()
+        for key in ("short", "medium", "long"):
+            if key in raw_config and isinstance(raw_config[key], dict):
+                flattened = {**raw_config, **raw_config[key]}
+                break
+
+        model_type_raw = flattened.get("model_type", flattened.get("framework"))
+        model_type = str(model_type_raw) if model_type_raw not in (None, "") else "unknown"
+        horizon_raw = flattened.get("horizon", flattened.get("horizon_name"))
+        horizon = str(horizon_raw) if horizon_raw not in (None, "") else "unknown"
+        region_raw = flattened.get("region", flattened.get("region_code"))
+        region = str(region_raw) if region_raw not in (None, "") else "unknown"
         
         # Определяем horizon категорию (short/medium/long) из config
         step = raw_config.get("step", raw_config.get("short", {}).get("step", 3600))
@@ -238,8 +245,12 @@ async def ui_model_detail(model_id: str = Query(..., min_length=1)) -> JSONRespo
     health_raw = stats.get("health_status", "ok")
     health = {"ok": "ok", "warning": "warning", "warn": "warning", "error": "error", "err": "error"}.get(health_raw, "ok")
 
-    parts = model_id.split("/")
-    model_type = parts[0] if parts else "unknown"
+    model_type_raw = flattened.get("model_type", flattened.get("framework"))
+    model_type = str(model_type_raw) if model_type_raw not in (None, "") else "unknown"
+    horizon_raw = flattened.get("horizon", flattened.get("horizon_name"))
+    horizon = str(horizon_raw) if horizon_raw not in (None, "") else "—"
+    region_raw = flattened.get("region", flattened.get("region_code"))
+    region = str(region_raw) if region_raw not in (None, "") else "—"
 
     has_weather = any(flattened.get(k) not in (None, "") for k in ("weather_url", "weather_lat", "weather_lon"))
     has_cmms = flattened.get("cmms_url") not in (None, "")
@@ -272,8 +283,8 @@ async def ui_model_detail(model_id: str = Query(..., min_length=1)) -> JSONRespo
             "model_id": model_id,
             "model_type": model_type,
             "health": health,
-            "region": parts[-1] if len(parts) > 2 else "—",
-            "horizon": parts[1] if len(parts) > 1 else "—",
+            "region": region,
+            "horizon": horizon,
             "mape": stats.get("avg_mape"),
             "run_count": stats.get("total_runs", 0),
             "avg_runtime_s": stats.get("avg_runtime_s", 0),

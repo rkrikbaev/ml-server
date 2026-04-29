@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 import json
+import yaml
 
 from .config import REDIS_TIMEOUT
 
@@ -56,21 +57,25 @@ def _trim_tasks() -> None:
 def _infer_model_type(model_id: str) -> str:
     if not model_id or model_id == "none":
         return "online"
-    return model_id.split("/")[0]
+
+    flattened = _flatten_model_config(_load_model_config(model_id))
+    model_type = flattened.get("model_type", flattened.get("framework"))
+    return str(model_type) if model_type not in (None, "") else "unknown"
 
 
 def _load_model_config(model_id: str) -> dict[str, Any]:
     if not model_id or model_id == "none":
         return {}
 
-    config_path = MODELS_PATH / model_id / "config.json"
+    config_path = MODELS_PATH / model_id / "config_unified.yaml"
     if not config_path.is_file():
         return {}
 
     try:
         with open(config_path) as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
+            payload = yaml.safe_load(f) or {}
+            return payload if isinstance(payload, dict) else {}
+    except (OSError, yaml.YAMLError):
         return {}
 
 

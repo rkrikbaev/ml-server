@@ -21,6 +21,60 @@ from api.forecast import (
 logger = logging.getLogger(__name__)
 
 
+def _safe_float(value: Any) -> Optional[float]:
+    if value is None or np.isnan(value):
+        return None
+    return round(float(value), 4)
+
+
+def _build_input_statistics(
+    timestamps: Any,
+    values: Any,
+    qds: Any,
+) -> Dict[str, Any]:
+    flat_timestamps = np.concatenate([np.asarray(series, dtype=np.int64) for series in timestamps])
+    flat_values = np.concatenate([np.asarray(series, dtype=float) for series in values])
+    flat_qds = np.concatenate([np.asarray(series, dtype=np.int64) for series in qds])
+    valid_values = flat_values[~np.isnan(flat_values)]
+
+    return {
+        "series_count": int(len(values)),
+        "point_count": int(flat_values.size),
+        "valid_point_count": int(valid_values.size),
+        "start_timestamp": int(flat_timestamps.min()) if flat_timestamps.size else None,
+        "end_timestamp": int(flat_timestamps.max()) if flat_timestamps.size else None,
+        "min": _safe_float(valid_values.min()) if valid_values.size else None,
+        "max": _safe_float(valid_values.max()) if valid_values.size else None,
+        "mean": _safe_float(valid_values.mean()) if valid_values.size else None,
+        "std": _safe_float(valid_values.std()) if valid_values.size else None,
+        "qds": {
+            "min": int(flat_qds.min()) if flat_qds.size else None,
+            "max": int(flat_qds.max()) if flat_qds.size else None,
+            "invalid_count": int(np.sum(flat_qds != QDS.BASE)) if flat_qds.size else 0,
+        },
+    }
+
+
+def _build_output_statistics(
+    pred_ts: Any,
+    preds: Any,
+) -> Dict[str, Any]:
+    pred_ts = np.asarray(pred_ts, dtype=np.int64)
+    preds = np.asarray(preds, dtype=float)
+    valid_preds = preds[~np.isnan(preds)]
+
+    return {
+        "point_count": int(preds.size),
+        "valid_point_count": int(valid_preds.size),
+        "start_timestamp": int(pred_ts.min()) if pred_ts.size else None,
+        "end_timestamp": int(pred_ts.max()) if pred_ts.size else None,
+        "min": _safe_float(valid_preds.min()) if valid_preds.size else None,
+        "max": _safe_float(valid_preds.max()) if valid_preds.size else None,
+        "mean": _safe_float(valid_preds.mean()) if valid_preds.size else None,
+        "std": _safe_float(valid_preds.std()) if valid_preds.size else None,
+    }
+
+
 def _mode_from_step(step_ms: int) -> str:
     """Derive forecast mode from step in milliseconds."""
     if step_ms < 86_400_000:
@@ -126,19 +180,6 @@ async def logic(
     model_id: str,
     online: bool,
 ) -> Dict[str, Any]:
-    """
-    The core logic of the predict API.
-
-    Loads model configuration from config.json, fetches input data from NDC,
-    and runs the forecast model.
-
-    :param str model_id: Relative path to the model under /workspace/models,
-        or "none" for online (train-on-request) mode.
-    :param bool online: True when model_id == "none".
-
-    :return: Result dict for api_predict.
-    :rtype: Dict[str, Any]
-    """
 
     try:
         # --- Model config ---
@@ -164,7 +205,7 @@ async def logic(
             return HTTPMessages.model_launch_aborted_no_data()
 
         # --- Model initialization ---
-        model = init_model(model_id, step, config.use_dynamic_normalization)
+        model = init_model(model_id, step, config.use_dynamic_normalization, config.fallback, config.model_type)
 
         # --- Weather ---
         weather_data = await _get_weather_payload(config, output_range)
@@ -220,6 +261,9 @@ async def logic(
                 input_qds,
                 input_reason,
                 config.clip_negatives_to_0,
+                timestamp,
+                value,
+                qds,
                 preds,
                 pred_ts,
                 planned_applied_count,
@@ -236,6 +280,9 @@ def _build_result(
     input_qds: int,
     input_reason: str,
     clip_negatives_to_0: bool,
+    timestamps: Any,
+    values: Any,
+    qds: Any,
     preds: Any,
     pred_ts: Any,
     planned_applied_count: int,
@@ -289,4 +336,6 @@ def _build_result(
         "quality": final_qds,
         "model_confidence": 1.0,
         "planned_adjustments_applied": planned_applied_count,
+        "input_statistics": _build_input_statistics(timestamps, values, qds),
+        "output_statistics": _build_output_statistics(pred_ts, preds),
     }

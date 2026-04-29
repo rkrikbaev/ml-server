@@ -9,32 +9,50 @@ from prophet import Prophet
 from pathlib import Path
 
 from api.forecast.base_interface import BaseModel
-from api.forecast.adapters import ARAdapter, ProphetAdapter
+from api.forecast.adapters import ARAdapter, NaiveAdapter, ProphetAdapter, XGBoostAdapter
 
 logger = logging.getLogger(__name__)
 
 
-def _detect_model_type(model_rel_dirpath: str) -> str:
-    """Infer model type from a path-style or flat model identifier."""
-    normalized = model_rel_dirpath.replace("\\", "/")
-    first_segment = normalized.split("/")[0].lower()
+def _normalize_model_type(model_type: Optional[str]) -> str:
+    """Normalize model type provided by config without deriving it from model_id."""
+    normalized = str(model_type or "").strip().lower()
+    if normalized in {"", "null"}:
+        raise ValueError("model_type must be provided in model config")
+    if normalized in {"xgb", "prophet", "naive", "ar"}:
+        return normalized
+    raise ValueError(f"Unsupported model_type: {model_type}")
 
-    if first_segment in {"xgb", "prophet"}:
-        return first_segment
 
-    flat_name = Path(model_rel_dirpath).name.lower()
-    if flat_name.startswith("xgb") or "xgb" in flat_name:
-        return "xgb"
-    if flat_name.startswith("prophet") or "prophet" in flat_name:
-        return "prophet"
+def _normalize_fallback_name(fallback: Optional[str]) -> str:
+    """Normalize fallback name to a supported lowercase token."""
+    normalized = str(fallback or "none").strip().lower()
+    if normalized in {"", "false", "null"}:
+        return "none"
+    return normalized
 
-    raise AssertionError(f"Unknown model type: {model_rel_dirpath}")
+
+def _build_fallback_model(fallback: str) -> Optional[BaseModel]:
+    """Create fallback adapter by configured name; return None when disabled."""
+    if fallback == "none":
+        return None
+    if fallback == "naive":
+        return NaiveAdapter(model_name="naive_fallback", horizon=24)
+    if fallback == "ar":
+        return ARAdapter(model_name="ar_fallback")
+    if fallback == "prophet":
+        return ProphetAdapter(model_name="prophet_fallback")
+    if fallback == "xgb":
+        return XGBoostAdapter(model_name="xgb_fallback")
+    raise ValueError(f"Unsupported fallback model: {fallback}")
 
 
 def init_model(
     model_rel_dirpath: Optional[str],
     step: int,
-    use_dynamic_normalization: bool = False
+    use_dynamic_normalization: bool = False,
+    fallback: str = "none",
+    model_type: Optional[str] = None,
 ) -> Any:
     """
     Initialize model by path, step and use_dynamic_normalization.
@@ -51,6 +69,8 @@ def init_model(
 
     :raises Exception: If the model is not dinamically normalized.
     """
+
+    fallback = _normalize_fallback_name(fallback)
 
     if model_rel_dirpath == "none":
         logger.info("model_rel_dirpath is 'none', creating new Prophet model")
@@ -92,7 +112,7 @@ def init_model(
         model = ProphetAdapter(model_name="prophet_new", legacy_model=prophet_model)
 
     else:
-        model_type = _detect_model_type(model_rel_dirpath)
+        model_type = _normalize_model_type(model_type)
 
         base_dirpath = Path("/workspace/models")
         model_rel_dirpath = Path(model_rel_dirpath)
@@ -100,13 +120,29 @@ def init_model(
         model_dirpath = base_dirpath / model_rel_dirpath
         
         try:
-            if model_type == "xgb":
+            if model_type == "naive":
+                logger.info("Initializing Naive (historical replay) model")
+                horizon = 24
+                model = NaiveAdapter(model_name="naive_model", horizon=horizon)
+
+            elif model_type == "ar":
+                logger.info("Initializing AR adapter model")
+                model = ARAdapter(model_name="ar_model")
+
+            elif model_type == "xgb":
                 logger.info(f"Loading XGBoost model from {model_dirpath}")
                 model_filepath = model_dirpath / "xgb_model.json"
                 
                 if not model_filepath.is_file():
-                    logger.warning(f"Model file not found: {model_filepath}")
-                    model = ARAdapter(model_name="ar_fallback")
+                    fallback_model = _build_fallback_model(fallback)
+                    if fallback_model is None:
+                        raise FileNotFoundError(f"Model file not found and fallback disabled: {model_filepath}")
+                    logger.warning(
+                        "Model file not found: %s; using configured fallback '%s'",
+                        model_filepath,
+                        fallback,
+                    )
+                    model = fallback_model
                 else:
                     logger.info(f"Loading AR model from {model_filepath}")
                     # Try to load legacy model, wrap in adapter
@@ -116,16 +152,30 @@ def init_model(
                             model_data = json.load(f)
                         model = ARAdapter(model_name="ar_model")
                     except Exception as e:
-                        logger.error(f"Failed to load XGBoost model: {e}, using fallback")
-                        model = ARAdapter(model_name="ar_fallback")
+                        fallback_model = _build_fallback_model(fallback)
+                        if fallback_model is None:
+                            raise
+                        logger.error(
+                            "Failed to load XGBoost model: %s; using configured fallback '%s'",
+                            e,
+                            fallback,
+                        )
+                        model = fallback_model
 
             elif model_type == "prophet":
                 logger.info(f"Loading Prophet model from {model_dirpath}")
                 model_filepath = model_dirpath / "prophet_model.json"
                 
                 if not model_filepath.is_file():
-                    logger.warning(f"Model file not found: {model_filepath}")
-                    model = ProphetAdapter(model_name="prophet_fallback")
+                    fallback_model = _build_fallback_model(fallback)
+                    if fallback_model is None:
+                        raise FileNotFoundError(f"Model file not found and fallback disabled: {model_filepath}")
+                    logger.warning(
+                        "Model file not found: %s; using configured fallback '%s'",
+                        model_filepath,
+                        fallback,
+                    )
+                    model = fallback_model
                 else:
                     logger.info(f"Loading Prophet model from {model_filepath}")
                     # Try to load legacy model, wrap in adapter
@@ -135,8 +185,15 @@ def init_model(
                             model_data = json.load(f)
                         model = ProphetAdapter(model_name="prophet_model")
                     except Exception as e:
-                        logger.error(f"Failed to load Prophet model: {e}, using fallback")
-                        model = ProphetAdapter(model_name="prophet_fallback")
+                        fallback_model = _build_fallback_model(fallback)
+                        if fallback_model is None:
+                            raise
+                        logger.error(
+                            "Failed to load Prophet model: %s; using configured fallback '%s'",
+                            e,
+                            fallback,
+                        )
+                        model = fallback_model
         except Exception as e:
             logger.error(f"Error initializing model: {e}")
             raise

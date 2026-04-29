@@ -291,3 +291,85 @@ class XGBoostAdapter(BaseModel):
             raise ValueError("Training data cannot be empty")
         
         logger.info(f"XGBoost model prepared with {len(train_data)} data points")
+
+
+class NaiveAdapter(BaseModel):
+    """
+    Наивный алгоритм прогнозирования.
+
+    Использует исторические данные напрямую в качестве прогноза:
+    берёт последние ``horizon`` значений из входного ряда и возвращает
+    их как предсказание на следующий горизонт.
+
+    Если исторических данных меньше, чем ``horizon``, оставшиеся точки
+    заполняются последним известным значением.
+
+    Пример использования::
+
+        model = NaiveAdapter(model_name="naive", horizon=24)
+        prediction = model.predict(PredictionInput(features=[...]))
+    """
+
+    def __init__(
+        self,
+        model_name: str = "naive_model",
+        horizon: int = 24,
+    ):
+        """
+        Args:
+            model_name: Имя модели.
+            horizon: Количество шагов прогноза (по умолчанию 24 часа).
+        """
+        super().__init__(model_name)
+        self.horizon = horizon
+        # Наивная модель не требует файла — помечаем как «загруженную» сразу.
+        self.model = self
+
+    def load(self) -> None:
+        """Наивная модель не требует загрузки из файла."""
+        self.model = self
+
+    def predict(self, input_data: PredictionInput) -> PredictionOutput:
+        """
+        Вернуть последние ``horizon`` значений истории как прогноз.
+
+        Args:
+            input_data: PredictionInput с полем features (массив исторических значений).
+
+        Returns:
+            PredictionOutput с predictions длиной ``horizon``.
+        """
+        self.validate_input(input_data)
+
+        horizon = self.horizon
+        if input_data.metadata:
+            horizon = int(input_data.metadata.get("output_range", horizon))
+
+        features = np.asarray(input_data.features, dtype=float).reshape(-1)
+
+        if len(features) == 0:
+            predictions = np.full(horizon, np.nan)
+        elif len(features) >= horizon:
+            # Берём последние horizon значений (один период назад)
+            predictions = features[-horizon:].copy()
+        else:
+            # Данных меньше горизонта — дополняем последним значением
+            pad_value = features[-1]
+            predictions = np.concatenate(
+                [features, np.full(horizon - len(features), pad_value)]
+            )
+
+        logger.info(f"Naive prediction: {horizon} values from {len(features)} history points")
+
+        return PredictionOutput(
+            predictions=predictions.tolist(),
+            metadata={
+                "model_type": "naive",
+                "horizon": horizon,
+                "history_length": len(features),
+            },
+        )
+
+    def train(self, train_data: List[float], timestamps: Optional[List[str]] = None) -> None:
+        """Наивная модель не требует обучения."""
+        logger.info("NaiveAdapter: no training required")
