@@ -114,10 +114,12 @@ def init_model(
     else:
         model_type = _normalize_model_type(model_type)
 
-        base_dirpath = Path("/workspace/models")
-        model_rel_dirpath = Path(model_rel_dirpath)
-
-        model_dirpath = base_dirpath / model_rel_dirpath
+        model_path = Path(model_rel_dirpath)
+        if model_path.is_absolute():
+            model_dirpath = model_path
+        else:
+            base_dirpath = Path("/workspace/models")
+            model_dirpath = base_dirpath / model_path
         
         try:
             if model_type == "naive":
@@ -144,13 +146,34 @@ def init_model(
                     )
                     model = fallback_model
                 else:
-                    logger.info(f"Loading AR model from {model_filepath}")
-                    # Try to load legacy model, wrap in adapter
+                    logger.info(f"Loading XGBoost model from {model_filepath}")
+                    # Try to load multi-step XGBoost models, wrap in adapter
                     try:
                         import json
+                        import xgboost as xgb
+                        
                         with open(model_filepath, 'r') as f:
-                            model_data = json.load(f)
-                        model = ARAdapter(model_name="ar_model")
+                            manifest = json.load(f)
+                        
+                        # Load all step boosters
+                        step_files = manifest.get("steps", [])
+                        models_dict = {}
+                        
+                        for step_file in step_files:
+                            booster_path = model_dirpath / step_file
+                            booster = xgb.Booster()
+                            booster.load_model(str(booster_path))
+                            # Extract step number from filename
+                            step_num = int(step_file.split("_")[-1].split(".")[0])
+                            models_dict[step_num] = booster
+                        
+                        if not models_dict:
+                            raise ValueError("No step files found in manifest")
+                        
+                        # Wrap loaded boosters in XGBoostAdapter
+                        model = XGBoostAdapter(model_name="xgboost_model", legacy_model=models_dict)
+                        model.load()
+                        
                     except Exception as e:
                         fallback_model = _build_fallback_model(fallback)
                         if fallback_model is None:

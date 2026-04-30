@@ -1,11 +1,14 @@
-.PHONY: help setup-test clean-test test mlflow-ui smoke-positive smoke-negative wait-api ml-model-status smoke-api
+.PHONY: help setup-test clean-test test mlflow-ui smoke-positive smoke-negative wait-api ml-model-status smoke-api train-xgb
 
 MODEL_SERVICE ?= model-server
 PREDICT_URL ?= http://localhost:8030/predict
-PREDICT_MODELS_DIR ?= ../local/models
+PREDICT_MODELS_DIR ?= ../local/mlruns
+TRAIN_MODELS_DIR ?= ../local/models
+TRAIN_MODEL_ID ?= /xgb
+TRAIN_LOOKBACK_DAYS ?= 30
 PREDICT_MODEL_ID ?= prophet_watt_h_AKMOLA_test
 PREDICT_OBJECT_REFERENCE ?= /root/FP/PROJECT/AKMOLA/@regions/KOKSHETAU/Load/P_load/archives/out_value
-PREDICT_CONFIG_FILE ?= $(PREDICT_MODELS_DIR)/$(PREDICT_MODEL_ID)/config.yaml
+PREDICT_CONFIG_FILE ?= $(PREDICT_MODELS_DIR)/$(PREDICT_MODEL_ID)/cache_config.json
 PREDICT_MAX_ATTEMPTS ?= 30
 PREDICT_POLL_INTERVAL ?= 1
 
@@ -23,10 +26,13 @@ help:
 	@echo "  make mlflow-ui       - Start MLflow UI"
 	@echo "  make test-predict    - Test 2-step async /predict flow"
 	@echo "                         vars: PREDICT_URL, PREDICT_MODELS_DIR, PREDICT_MODEL_ID, PREDICT_OBJECT_REFERENCE"
-	@echo "                               PREDICT_CONFIG_FILE (optional; auto-detected if omitted)"
-	@echo "                         example: make test-predict PREDICT_MODEL_ID=model2"
+	@echo "                               PREDICT_CONFIG_FILE (optional; defaults to cache_config.json)"
+	@echo "                         example: make test-predict PREDICT_MODEL_ID=/xgb"
 	@echo "  make logs            - Show recent logs"
 	@echo "  make help            - Show this help message"
+	@echo "  make train-xgb       - Fetch SCADA data and train XGBoost model"
+	@echo "                         vars: TRAIN_MODELS_DIR (default: ../local/models), TRAIN_MODEL_ID (default: /xgb), TRAIN_LOOKBACK_DAYS (default: 30)"
+	@echo "                         example: make train-xgb TRAIN_MODEL_ID=/xgb TRAIN_LOOKBACK_DAYS=60"
 
 setup-test:
 	@echo "⚙️  Setting up test environment..."
@@ -76,36 +82,22 @@ test-predict:
 	@api_url="$(PREDICT_URL)"; \
 	model_id="$(PREDICT_MODEL_ID)"; \
 	model_dir="$(PREDICT_MODELS_DIR)/$$model_id"; \
-	config_file="$(PREDICT_CONFIG_FILE)"; \
-	target_config_file="$$model_dir/config.yaml"; \
-	if [ ! -d "$$model_dir" ]; then \
-		echo "Model directory not found: $$model_dir"; \
+	cache_config_file="$(PREDICT_CONFIG_FILE)"; \
+	if [ ! -f "$$cache_config_file" ]; then \
+		cache_config_file=$$(find "$(PREDICT_MODELS_DIR)" -type f -path "*/artifacts/bundle/configuration/cache_config.json" -print 2>/dev/null | head -n 1); \
+	fi; \
+	if [ ! -f "$$cache_config_file" ]; then \
+		echo "cache_config.json not found. Checked explicit path: $(PREDICT_CONFIG_FILE) and MLflow tree under $(PREDICT_MODELS_DIR)"; \
 		exit 1; \
-	fi; \
-	if [ ! -f "$$config_file" ]; then \
-		if [ -f "$$model_dir/config.yaml" ]; then \
-			config_file="$$model_dir/config.yaml"; \
-		else \
-			config_file=$$(find "$$model_dir" -maxdepth 1 -type f \( -name "*.yaml" -o -name "*.yml" \) | head -n 1); \
-		fi; \
-	fi; \
-	if [ -f "$$config_file" ] && [ "$$config_file" != "$$target_config_file" ]; then \
-		cp "$$config_file" "$$target_config_file"; \
-		echo "Synced config to $$target_config_file"; \
-		config_file="$$target_config_file"; \
 	fi; \
 	object_reference="$(PREDICT_OBJECT_REFERENCE)"; \
 	if [ "$${SCADA_STUB_ENABLED:-true}" = "false" ]; then \
-		if [ ! -f "$$config_file" ]; then \
-			echo "Config file not found. Checked: $(PREDICT_CONFIG_FILE), $$model_dir/config.yaml and first yaml in model dir"; \
-			exit 1; \
-		fi; \
-		object_reference=$$(grep -m1 -E '^  object_reference:' "$$config_file" | sed -E 's/^  object_reference:[[:space:]]*//'); \
+		object_reference=$$(/Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); a=d.get("archives") or []; print(a[0] if a else "")' "$$cache_config_file" 2>/dev/null || true); \
 		if [ -z "$$object_reference" ]; then \
-			echo "Could not read object_reference from $$config_file"; \
+			echo "Could not read archives[0] from $$cache_config_file"; \
 			exit 1; \
 		fi; \
-		echo "Using object_reference from config ($$config_file): $$object_reference"; \
+		echo "Using object_reference from cache_config ($$cache_config_file): $$object_reference"; \
 	fi; \
 	payload="{\"object_reference\": \"$$object_reference\", \"model_id\": \"$$model_id\"}"; \
 	echo "[1/2] Starting predict task..."; \
@@ -180,6 +172,12 @@ smoke-api:
 install-deps:
 	@echo "📦 Installing dependencies..."
 	@pip install -r requirements.txt
+
+train-xgb:
+	@echo "🏋️ Training XGBoost model for $(TRAIN_MODEL_ID) (lookback=$(TRAIN_LOOKBACK_DAYS)d)..."
+	@/Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python scripts/train_xgb.py \
+		--model-dir $(abspath $(TRAIN_MODELS_DIR)/$(TRAIN_MODEL_ID)) \
+		--lookback-days $(TRAIN_LOOKBACK_DAYS)
 
 .env.test:
 	@cp .env.test .env.test.bak 2>/dev/null || true

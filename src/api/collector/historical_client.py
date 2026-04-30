@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from api import HEADERS, HTTPMessages
 from api.collector.http_client import HTTPClient, CLIENT_TIMEOUT_ALL, CLIENT_TIMEOUT_ONE
 from api.forecast import QDS
-from api.utils import generate_timestamp, interpolate_nan_1d
+from api.utils import interpolate_nan_1d
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +46,12 @@ class HistoricalDataClient(HTTPClient):
             return url
 
         parsed = urlparse(url)
+
         if parsed.hostname not in {"127.0.0.1", "localhost"}:
-            return url
+            return urlunparse(parsed)
 
         if not Path("/.dockerenv").exists():
-            return url
+            return urlunparse(parsed)
 
         netloc = parsed.netloc.replace(parsed.hostname, "host.docker.internal")
         return urlunparse(parsed._replace(netloc=netloc))
@@ -74,21 +75,29 @@ class HistoricalDataClient(HTTPClient):
 
     @staticmethod
     def build_request(
-        mode: str,
         archives: List[str],
         step: int,
+        input_range: Optional[int],
+        output_range: int,
         request_overrides: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Build a historical-data request payload for the selected forecast mode."""
+        """Build a historical-data request payload from explicit range settings."""
         if not archives:
             raise ValueError("archives must not be empty")
         if step <= 0:
             raise ValueError("step must be greater than zero")
+        if output_range <= 0:
+            raise ValueError("output_range must be greater than zero")
 
-        from_tp, to_tp = generate_timestamp(mode)
+        now_utc = datetime.now(timezone.utc)
+        current_hour = now_utc.replace(minute=0, second=0, microsecond=0)
+        history_points = int(input_range) if input_range and input_range > 0 else int(output_range)
+        to_dt = current_hour
+        from_dt = to_dt - timedelta(seconds=history_points * (step // 1000))
+
         request_payload: Dict[str, Any] = {
-            "from": from_tp,
-            "to": to_tp,
+            "from": int(from_dt.timestamp() * 1000),
+            "to": int(to_dt.timestamp() * 1000),
             "archive": archives,
             "step": step // 1000,
         }
@@ -194,16 +203,23 @@ class HistoricalDataClient(HTTPClient):
 
     async def fetch_model_data(
         self,
-        mode: str,
         archives: List[str],
         step: int,
+        input_range: Optional[int],
+        output_range: int,
         online: bool,
         historical_data_url: Optional[str] = None,
         request_overrides: Optional[Dict[str, Any]] = None,
     ) -> JSONResponse | ModelData:
         """Request historical data and return model-ready arrays."""
         try:
-            request_payload = self.build_request(mode, archives, step, request_overrides=request_overrides)
+            request_payload = self.build_request(
+                archives,
+                step,
+                input_range,
+                output_range,
+                request_overrides=request_overrides,
+            )
         except ValueError as error:
             return HTTPMessages.unprocessable_entity_historical_data(str(error))
 

@@ -17,7 +17,7 @@ The client does **not** receive the forecast in the first request. Instead:
 3. SCADA polls `/predict` with that `task_id`.
 4. The server returns either `202 processing` or the final `200/422/500/503` result.
 
-The server loads inference settings from a local `config.json` in the model directory, not from MLflow.
+The server resolves offline model artifacts and runtime configuration through MLflow Registry and a local cached bundle.
 
 ---
 
@@ -29,16 +29,22 @@ The server loads inference settings from a local `config.json` in the model dire
 POST /predict
 {
   "object_reference": "/KAZ/AKMOLA/@models/P_WATT",
-  "model_id": "prophet/watt/h/AKMOLA/@regions/Akmola/load"
+  "model_id": "prophet/watt/h/AKMOLA/@regions/Akmola/load",
+  "model_selection": {
+    "version_alias": "Production"
+  }
 }
 ```
 
 ### Field Notes
 
 - `object_reference` is required.
-- `model_id` is required and must be non-empty.
+- `model_id` is optional; when omitted or set to `"none"`, the server uses online mode.
 - `model_id: "none"` is supported and means online mode.
-- `horizon`, `step`, `output_range`, `archives`, and optional weather settings are loaded from model `config.json`.
+- `model_selection.version_alias` and `model_selection.version` are optional public fields for MLflow resolution.
+- `version_alias` and `version` are mutually exclusive.
+- If selector is omitted, the server uses MLflow alias `Production`.
+- For offline serving, `step`, `output_range`, `archives`, and optional weather settings are loaded from cached MLflow bundle config `bundle/configuration/cache_config.json`.
 
 ### 2. Poll Prediction Task
 
@@ -123,13 +129,13 @@ HTTP 422 Unprocessable Entity
 }
 ```
 
-### E. Model Config Missing
+### E. MLflow Bundle / Config Unavailable
 
 ```json
-HTTP 422 Unprocessable Entity
+HTTP 503 Service Unavailable
 {
-  "status": 422,
-  "message": "Model launch aborted: config.json not found for model 'prophet/watt/h/AKMOLA/@regions/Akmola/load'.",
+  "status": 503,
+  "message": "MLFLOW is not available, so it is impossible to take values at this time. Error: MLflow bundle config is unavailable for model_id=prophet/watt/h/AKMOLA/@regions/Akmola/load",
   "task_id": "8f52f2d9-2b8c-4f93-95d9-4f7d73a1e1aa",
   "state": "done"
 }
@@ -173,7 +179,7 @@ HTTP 500 Internal Server Error
 
 The request is validated by Pydantic discriminated schemas:
 
-- create request: `object_reference`, `model_id`
+- create request: `object_reference`, `model_id`, optional `model_selection`
 - update request: `task_id`
 
 Validation failures return `422`, not `400`.
@@ -184,13 +190,21 @@ The first `/predict` call enqueues `api_predict` in the broker and returns `202 
 
 ### Step 3. Model Config Loading
 
-The worker loads model settings from:
+The worker resolves offline runtime config from MLflow bundle cache:
 
 ```text
-${MODELS_PATH:-/workspace/models}/{model_id}/config.json
+/tmp/mlserver_registry_cache/{model_id-hash}/{selector}/{run_id}/bundle/configuration/cache_config.json
 ```
 
-Current supported model config format:
+Current serving flow:
+
+- resolve `model_id` + selector (`version_alias` or `version`) in MLflow Registry,
+- download artifact `bundle` from MLflow,
+- use `bundle/model` as the model artifact root,
+- use `bundle/configuration/cache_config.json` as the canonical runtime config,
+- if MLflow is unavailable, fallback is allowed only to the last successfully cached bundle for the same `model_id`.
+
+Current supported runtime config format:
 
 ```json
 {
@@ -257,7 +271,7 @@ Historical load data is requested from the historical-data collector:
 
 #### Weather source
 
-If `weather_lat` and `weather_lon` are present in `config.json`, the worker fetches weather forecast data using the weather client.
+If `weather_lat` and `weather_lon` are present in the normalized runtime config, the worker fetches weather forecast data using the weather client.
 
 Current behavior:
 
@@ -345,11 +359,11 @@ The broker appends `object_reference`, and the API layer appends `task_id` and `
 The following statements are **not true for the current implementation**:
 
 - `/predict` is not a single synchronous request/response endpoint
-- MLflow is not used for active model lookup in the running pipeline
+- MLflow is used for active model lookup in the running pipeline
 - `run_id` is not returned
 - `horizon` is not returned as a first-class response field
 - `forecast` is not returned as an array of objects; the current field is `data.output`
-- external APIs are not orchestrated through `data_source_config`
+- `config.json` in `/workspace/models` is not the active offline runtime source
 
 ---
 
@@ -360,7 +374,10 @@ The following statements are **not true for the current implementation**:
 ```json
 {
   "object_reference": "/KAZ/AKMOLA/@models/P_WATT",
-  "model_id": "prophet/watt/h/AKMOLA/@regions/Akmola/load"
+  "model_id": "prophet/watt/h/AKMOLA/@regions/Akmola/load",
+  "model_selection": {
+    "version_alias": "Production"
+  }
 }
 ```
 
@@ -401,8 +418,8 @@ Expected:
 
 Expected:
 
-- `422 Unprocessable Entity`
-- `config.json not found` message
+- `503 Service Unavailable`
+- MLflow bundle/config unavailable message
 
 ---
 

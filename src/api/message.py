@@ -177,3 +177,10 @@ class HTTPMessages:
         content = cls.response(HTTPStatuses.SC503, cls.message503("HISTORICAL_DATA"))
         if msg: content["message"] += f" Error: {msg}"
         return content
+
+    @classmethod
+    def service_unavailable_mlflow(cls, msg: str = "") -> JSONResponse:
+        content = cls.response(HTTPStatuses.SC503, cls.message503("MLFLOW"))
+        if msg:
+            content["message"] += f" Error: {msg}"
+        return content

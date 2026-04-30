@@ -32,7 +32,7 @@
 | Компонент | Назначение | Местоположение |
 |-----------|-----------|-------------------|
 | **Конфигурация окружения** | Переменные среды для тестов | `.env.test` |
-| **Runtime-конфигурация модели** | Активный `config.json` для инференса | `../local/models/prophet_watt_h_AKMOLA_test/config.json` |
+| **Runtime-конфигурация модели** | Активный `cache_config.json` в MLflow bundle cache | `/tmp/mlserver_registry_cache/.../bundle/configuration/cache_config.json` |
 | **Скрипт инициализации** | Python скрипт настройки | `scripts/setup_test_model.py` |
 | **Скрипт окружения** | Bash скрипт для полной настройки | `scripts/setup_test_env.sh` |
 | **Синтетические данные** | Тестовые данные для обучения | `tests/fixtures/test_data/` |
@@ -154,19 +154,15 @@ load_dotenv('.env.test')
 
 ## Конфигурация Моделей
 
-Текущий runtime читает конфигурацию инференса не из MLflow и не из YAML-файла, а из локального файла модели:
+Текущий offline runtime читает конфигурацию инференса из MLflow serving bundle:
 
 ```text
-../local/models/prophet_watt_h_AKMOLA_test/config.json
+/tmp/mlserver_registry_cache/.../bundle/configuration/cache_config.json
 ```
 
-Этот файл монтируется в контейнер как:
+Для online flow (`model_id == "none"`) registry bundle не требуется.
 
-```text
-/workspace/models/prophet_watt_h_AKMOLA_test/config.json
-```
-
-### Актуальный формат `config.json`
+### Актуальный формат `cache_config.json`
 
 ```json
 {
@@ -253,7 +249,7 @@ load_dotenv('.env.test')
 
 ### Legacy helper config
 
-Скрипты настройки всё ещё могут создавать вспомогательный файл `config/test_runtime.json` для локальных экспериментов, но активный `/predict` использует именно `local/models/.../config.json`.
+Скрипты настройки всё ещё могут создавать вспомогательный файл `config/test_runtime.json` для локальных экспериментов, но активный offline `/predict` использует именно MLflow bundle `cache_config.json`.
 
 Пример legacy helper-файла:
 
@@ -418,7 +414,7 @@ ml-server/
 local/
 └── models/
   └── prophet_watt_h_AKMOLA_test/
-    └── config.json                # Активная runtime-конфигурация модели
+    └── bundle/configuration/cache_config.json   # Активная runtime-конфигурация модели
 ```
 
 ---
@@ -561,7 +557,7 @@ python -m uvicorn src.api.main:app --port 8001
 После настройки проверить:
 
 - [ ] Директории созданы: `config`, `logs`, `tests/fixtures/test_data`, `mlflow_artifacts`
-- [ ] Активный runtime-config создан: `../local/models/prophet_watt_h_AKMOLA_test/config.json`
+- [ ] Активный runtime-config доступен: `bundle/configuration/cache_config.json`
 - [ ] MLflow запущен: `mlflow ui` доступен на http://localhost:5000
 - [ ] Модель зарегистрирована: `prophet_watt_h_AKMOLA_test` видна в MLflow UI
 - [ ] Синтетические данные созданы: `tests/fixtures/test_data/sample.csv` имеет 721 строку

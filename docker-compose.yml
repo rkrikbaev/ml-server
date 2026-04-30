@@ -20,13 +20,22 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/workspace/server:/workspace/lib
       - TEST_MODE=true
-      - SCADA_STUB_ENABLED=${SCADA_STUB_ENABLED:-true}
+      - SCADA_STUB_ENABLED=${SCADA_STUB_ENABLED:-false}
+      - HISTORICAL_DATA_STUB_ENABLED=${HISTORICAL_DATA_STUB_ENABLED:-false}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_REGISTRY_URI=http://mlflow:5000
+      - MLFLOW_DEFAULT_ALIAS=Production
+      - MODEL_REGISTRY_CACHE_MAX=3
+      - MODEL_REGISTRY_CACHE_DIR=/tmp/mlserver_registry_cache
     volumes:
       - "../local/${MODEL:-models}:/workspace/models"
       - "./src:/workspace/server"
       - "../models:/workspace/lib"
+      - "../local/mlruns:/mlflow/mlruns:ro"
+      - "model_registry_cache:/tmp/mlserver_registry_cache"
     depends_on:
       - redis
+      - mlflow
     deploy:
       resources:
         limits:
@@ -61,11 +70,12 @@ services:
     # CMD may not start the server (it can default to `python3`), causing the
     # container to exit with code 0. Provide an explicit command so the
     # container stays running and serves the UI on the mapped port.
-    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow/mlruns
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --default-artifact-root /mlflow/mlruns --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5050,127.0.0.1,127.0.0.1:5050,host.docker.internal
     ports:
       - "${MLFLOW_PORT:-5050}:5000"
     volumes:
-      - "../mlruns:/mlflow/mlruns"
+      - "../local/mlruns:/mlflow/mlruns"
+      - "mlflow_data:/mlflow"
     networks:
       - ml
 
@@ -75,3 +85,5 @@ networks:
 
 volumes:
   redis_data:
+  model_registry_cache:
+  mlflow_data:

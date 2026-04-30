@@ -1,93 +1,160 @@
-# ml server
+# ml-server
 
+Backend service for asynchronous forecasting with a two-step `/predict` API.
 
+The service is built on FastAPI + TaskIQ + Redis and resolves offline model bundles through MLflow Registry with local bundle caching.
 
-## Getting started
+## What this service does
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- Accepts forecast requests via `POST /predict`.
+- Runs inference asynchronously in background workers.
+- Returns task status and final prediction using the same endpoint.
+- Exposes operational UI/API endpoints under `/ui/*`.
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+## Architecture at a glance
 
-## Add your files
+- API server: FastAPI (`src/api/server.py`).
+- Background processing: TaskIQ broker (`src/api/broker/broker.py`).
+- Queue/result backend: Redis.
+- Model loading and inference: `src/api/forecast/*`.
+- Offline model resolution: MLflow Registry -> cached bundle in `/tmp/mlserver_registry_cache`.
+- Local runtime stack: `docker-compose.yml` (`model-server`, `redis`, `mlflow`).
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/ee/gitlab-basics/add-file.html#add-a-file-using-the-command-line) or push an existing Git repository with the following command:
+## Quick start (Docker)
 
+From repository root:
+
+```bash
+docker-compose -f ml-server/docker-compose.yml up --build
 ```
-cd existing_repo
-git remote add origin http://10.210.2.101/scada/ml-server.git
-git branch -M main
-git push -uf origin main
+
+Default ports (can be overridden by env vars):
+
+- API: `http://localhost:8030`
+- Redis: `localhost:6379`
+- MLflow UI: `http://localhost:5050`
+
+## Local development (without Docker API process)
+
+From `ml-server` directory:
+
+```bash
+pip install -r requirements.txt
+export PYTHONPATH=./src
+python -m uvicorn api.server:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Integrate with your tools
+In a separate terminal, run the worker:
 
-- [ ] [Set up project integrations](http://10.210.2.101/scada/ml-server/-/settings/integrations)
+```bash
+cd ml-server
+export PYTHONPATH=./src
+taskiq worker api.broker:broker
+```
 
-## Collaborate with your team
+Redis must be available for TaskIQ.
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/ee/user/project/merge_requests/merge_when_pipeline_succeeds.html)
+## Predict API flow (two-step, async)
 
-## Test and Deploy
+1. Start a task:
 
-Use the built-in continuous integration in GitLab.
+```bash
+curl -X POST http://localhost:8030/predict \
+	-H "Content-Type: application/json" \
+	-d '{"object_reference":"/root/FP/PROJECT/AKMOLA/@regions/KOKSHETAU/Load/P_load/archives/out_value","model_id":"model3","model_selection":{"version_alias":"Production"}}'
+```
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/index.html)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+Expected response: HTTP `202` with `task_id`.
 
-***
+Optional MLflow selector fields in create request:
 
-# Editing this README
+- `model_selection.version_alias` - resolve by MLflow alias, default is `Production`.
+- `model_selection.version` - resolve by explicit MLflow model version.
+- `version_alias` and `version` are mutually exclusive.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+2. Poll by `task_id`:
 
-## Suggestions for a good README
+```bash
+curl -X POST http://localhost:8030/predict \
+	-H "Content-Type: application/json" \
+	-d '{"task_id":"<task_id>"}'
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+Expected behavior:
 
-## Name
-Choose a self-explaining name for your project.
+- HTTP `202` while processing.
+- Final successful response with status/state when done.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## Common make commands
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+From `ml-server` directory:
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+```bash
+make help
+make test
+make smoke-positive
+make smoke-negative
+make test-predict PREDICT_MODEL_ID=model3
+make ml-model-status
+make smoke-api
+```
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## Testing
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+- Unit/integration tests (excluding smoke tests):
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+```bash
+cd ml-server
+make test
+```
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+- Predict smoke tests:
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+```bash
+cd ml-server
+make smoke-positive
+make smoke-negative
+```
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+- End-to-end test of async `/predict` flow:
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```bash
+cd ml-server
+make test-predict PREDICT_MODEL_ID=model3
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## Model conventions
 
-## License
-For open source projects, say how it is licensed.
+- Models are resolved by `model_id` (business identifier).
+- `model_id` is opaque and user-defined.
+- Do not parse, normalize, or rewrite `model_id`.
+- Offline runtime artifacts are resolved from MLflow bundle cache under `/tmp/mlserver_registry_cache`.
+- Canonical runtime config for offline serving is `bundle/configuration/cache_config.json` inside the cached MLflow bundle.
+- `/workspace/models` is not a fallback source for offline predictions.
+- Online flow is used when `model_id` is omitted or equals `none`.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+## UI and operational endpoints
+
+- `GET /ui`
+- `GET /ui/tasks`
+- `GET /ui/tasks/{task_id}`
+- `GET /ui/models`
+- `GET /ui/models/{model_id}/runs`
+- `GET /ui/model-config`
+- `GET /ui/runtime-status`
+
+## Documentation map
+
+Start here:
+
+- `docs/DOCMAP.txt` - documentation overview and navigation.
+- `docs/API/MAIN.md` - API reference.
+- `docs/API/schema/PREDICT.md` - request schema and validation.
+- `docs/API/MESSAGES.md` - response message formats.
+- `START_TESTING.md` - fast testing checklist.
+
+## Documentation policy
+
+Before changing API behavior, runtime contracts, model-loading logic, or test flows, check relevant files in `docs/`.
+
+If behavior or contracts changed in code, update the corresponding docs in the same change.

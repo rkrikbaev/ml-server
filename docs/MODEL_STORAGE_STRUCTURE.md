@@ -5,7 +5,7 @@
 ## Коротко
 - Код сервера монтируется в контейнер как: `/workspace/server` (хост: `ml-server/src`).
 - Папка с конкретными обученными моделями монтируется как: `/workspace/models` (хост: `ml-server/local/models` по умолчанию).
-- MLflow хранит артефакты в `mlruns` (на хосте `ml-server/mlruns`), см. `docker-compose.yml`.
+- MLflow хранит артефакты в `mlruns` (на хосте `ml-server/local/mlruns`), см. `docker-compose.yml`.
 
 ## Файловая организация (важные пути)
 - ml-server серверный пакет: `ml-server`
@@ -17,20 +17,20 @@
 - MLflow local runs: `mlruns/` (монтируется в контейнер mlflow как `/mlflow/mlruns`)
 
 ## Как устроена папка модели (пример: `ml-server/local/models`)
-В папке каждой модели находятся:
-- бинарные/файлы артефактов модели (pickle, joblib, ONNX, weights и т.д.)
-- метаданные: `meta.json` или аналог (описание версии, метрик, дата обучения)
-- конфигурация развёртывания (если требуется): `config.yaml`, `config.json`
-- дополнительные файлы (например, словари, scaler'ы)
+В serving-совместимом MLflow bundle находятся:
+- `bundle/model` — бинарные/файлы артефактов модели
+- `bundle/configuration/cache_config.json` — canonical runtime configuration
+- `bundle/assets` — дополнительные файлы (если нужны)
 
-Пример структуры:
+Пример структуры cached bundle:
 
-- ../local/`${MODEL}`
-    - model.pkl
-    - meta.json
-    - config.yaml
+- /tmp/mlserver_registry_cache/<model>/<selector>/<run_id>/bundle/
+  - model/
+  - configuration/
+    - cache_config.json
+  - assets/
 
-В контейнере это будет доступно по пути `/workspace/models`.
+Offline runtime читает именно cached MLflow bundle. `/workspace/models` не используется как fallback для offline serving.
 
 ## Переменные конфигурации (ключевые)
 Файл `.env` в корне проекта (или в ml-server) используется Docker Compose и содержит переменные, которые применяются в `docker-compose.yml`.
@@ -67,18 +67,22 @@ MLFLOW_PORT=5000
 
 ## Как переключить модель
 1. Скопировать/поместить новую модель в `../local/models/<имя_модели>` (например `../local/models/my_model`).
-2. В запросе указать имя модели:
+2. В запросе указать `model_id` и при необходимости `model_selection`:
 ```json
 {
     "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
-    "model_id": "prophet_watt_h_AKMOLA_@regions_Akmola_load"
+    "model_id": "prophet_watt_h_AKMOLA_@regions_Akmola_load",
+    "model_selection": {
+      "version_alias": "Production"
+    }
 }
 ```
-Сервер примонтирует нужную модель взяв необходимцю информацию из сервера MLFlow.
+Сервер разрешит нужную модель через MLflow Registry, скачает `bundle` и положит его в локальный cache.
 
 ## Как модель загружается в коде
-- В `api/forecast/model.py` (и смежных) есть функции/инициализаторы для загрузки модели, они ожидают найти модель в путях, см. `init_model`.
-- Внутри контейнера код ожидает, что локальные модели доступны по `/workspace/models`.
+- В `api/forecast/provider.py` registry resolver скачивает MLflow `bundle` в локальный cache.
+- В `api/forecast/config.py` runtime config читается из `bundle/configuration/cache_config.json`.
+- В `api/forecast/model.py` `init_model` ожидает модель в `bundle/model`.
 - Модуль `fpforecast` (реализация моделей) загружается из `/workspace/lib/fpforecast`.
 
 ## MLflow (опционально)
@@ -91,10 +95,11 @@ MLFLOW_PORT=5000
   - Backend Store (метаданные): sqlite:///mlflow_data/mlflow.db — хранит метрики, параметры, теги и метаданные запусков.
   - Artifact Store (артефакты): ./mlflow_data/artifacts — хранит тяжёлые объекты (модели, сериализованные датасеты, графики).
 
-- Концепция "Паспорта данных" (Data Passport / Tags):
-  - Во время обучения в MLflow записывается тег, содержащий JSON-конфигурацию источника данных (тип БД, SQL-запрос, пути в S3 и т.д.).
-  - При запуске прогноза код читает `run_id` модели и получает значение тега `data_source_config` из SQLite (backend store).
-  - Полученный конфиг передаётся в модуль загрузки данных (`data_loader`), который формирует DataFrame для инференса.
+- Runtime bundle layout:
+  - `bundle/model` — модель для serving
+  - `bundle/configuration/cache_config.json` — runtime-конфиг инференса
+  - offline fallback допустим только к последнему успешно закешированному MLflow bundle того же `model_id`
+  - fallback к `/workspace/models` для offline prediction не используется
 
 - Пример запуска MLflow server (локально):
   ```bash

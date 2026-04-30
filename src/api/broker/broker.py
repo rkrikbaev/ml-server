@@ -36,6 +36,7 @@ async def api_predict(data: Dict[str, Any]) -> Dict[str, Any]:
     output = await predict_logic(
         model_id=data["model_id"],
         online=data["online"],
+        selector=data.get("selector"),
     )
     output["object_reference"] = data["object_reference"]
     return output

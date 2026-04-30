@@ -10,9 +10,29 @@ from pydantic import (
     Tag,
     field_validator,
     computed_field,
+    model_validator,
 )
 
 from api import TAG_PREDICT_CREATE, TAG_PREDICT_UPDATE
+
+
+class ModelSelectionSchema(BaseModel):
+    """Optional selector for resolving a model in MLflow Registry."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    version_alias: str | None = None
+    version: str | None = None
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> "ModelSelectionSchema":
+        if self.version_alias and self.version:
+            raise ValueError("'version_alias' and 'version' are mutually exclusive")
+        if self.version is not None and len(self.version) == 0:
+            raise ValueError("'version' must be non-empty")
+        if self.version_alias is not None and len(self.version_alias) == 0:
+            raise ValueError("'version_alias' must be non-empty")
+        return self
 
 
 class PredictCreateSchema(BaseModel):
@@ -28,11 +48,23 @@ class PredictCreateSchema(BaseModel):
 
     model_id: str = "none"
     object_reference: str
+    model_selection: ModelSelectionSchema | None = None
 
     @computed_field
     @property
     def online(self) -> bool:
         return self.model_id == "none"
+
+    @computed_field
+    @property
+    def selector(self) -> str:
+        if self.model_selection is None:
+            return "Production"
+        if self.model_selection.version:
+            return self.model_selection.version
+        if self.model_selection.version_alias:
+            return self.model_selection.version_alias
+        return "Production"
 
     @field_validator("model_id")
     @classmethod

@@ -40,7 +40,7 @@
   "status": 202,
   "state": "start",
   "task_id": "...",
-  "fp_path": "..."
+  "object_reference": "..."
 }
 ```
 
@@ -94,7 +94,7 @@
   "status": 422,
   "state": "done",
   "task_id": "...",
-  "fp_path": "...",
+  "object_reference": "...",
   "message": "Incorrect data in the dataset from archives.",
   "quality": ...
 }
@@ -109,7 +109,7 @@
   "status": 422,
   "state": "done",
   "task_id": "...",
-  "fp_path": "...",
+  "object_reference": "...",
   "message": "Forecast execution error: {сообщение от ошибки из кода}"
 }
 ```
@@ -123,7 +123,7 @@
   "status": 500,
   "state": "done",
   "task_id": "...",
-  "fp_path": "...",
+  "object_reference": "...",
   "message": "Internal server error: {сообщение от ошибки из кода}"
 }
 ```
@@ -134,29 +134,29 @@
 
 ### Вариант 1
 
-Не связался с сервисом НДЦ или ремонтных заявок
+Не связался с сервисом НДЦ, ремонтных заявок или MLflow
 
 ```json
 {
   "status": 503,
   "state": "done",
   "task_id": "...",
-  "fp_path": "...",
-  "message": "{NDC или RZ} is not available, so it is impossible to take values ​​at this time."
+  "object_reference": "...",
+  "message": "{NDC, RZ или MLFLOW} is not available, so it is impossible to take values at this time."
 }
 ```
 
 ### Вариант 2
 
-Не связался с сервисом НДЦ или ремонтных заявок, а также выкинул ошибку с сообщение из кода
+Не связался с сервисом НДЦ, ремонтных заявок или MLflow и добавил сообщение из кода
 
 ```json
 {
   "status": 503,
   "state": "done",
   "task_id": "...",
-  "fp_path": "...",
-  "message": "{NDC или RZ} is not available, so it is impossible to take values ​​at this time. Error: {сообщение от ошибки из кода}"
+  "object_reference": "...",
+  "message": "{NDC, RZ или MLFLOW} is not available, so it is impossible to take values at this time. Error: {сообщение от ошибки из кода}"
 }
 ```
 

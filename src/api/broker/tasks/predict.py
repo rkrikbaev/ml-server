@@ -17,6 +17,7 @@ from api.forecast import (
     evaluate_input_quality,
     predict,
     load_model_config,
+    get_model_provider,
 )
 logger = logging.getLogger(__name__)
 
@@ -75,15 +76,6 @@ def _build_output_statistics(
     }
 
 
-def _mode_from_step(step_ms: int) -> str:
-    """Derive forecast mode from step in milliseconds."""
-    if step_ms < 86_400_000:
-        return "short"
-    elif step_ms >= 2_419_200_000:
-        return "long"
-    return "medium"
-
-
 async def _get_weather_payload(
     config: Any,
     output_range: int,
@@ -106,16 +98,18 @@ async def _get_weather_payload(
 
 
 async def _get_historical_data_payload(
-    mode: str,
     config: Any,
     step: int,
+    input_range: Optional[int],
+    output_range: int,
     online: bool,
 ) -> Any:
     """Fetch primary load history from the current historical-data client."""
     return await get_historical_data_client().fetch_model_data(
-        mode=mode,
         archives=config.archives,
         step=step,
+        input_range=input_range,
+        output_range=output_range,
         online=online,
         historical_data_url=config.historical_data_url,
         request_overrides=config.historical_data_request_overrides,
@@ -123,9 +117,9 @@ async def _get_historical_data_payload(
 
 
 async def _get_planned_adjustments(
-    mode: str,
     config: Any,
     step_ms: int,
+    output_range: int,
 ) -> Optional[Dict[int, float]]:
     """Fetch CMMS planned adjustments as {timestamp_ms: reduction_value}."""
     if not config.cmms_url:
@@ -133,8 +127,8 @@ async def _get_planned_adjustments(
 
     try:
         payload = await get_cmms_client().fetch_planned_series(
-            mode=mode,
             step_ms=step_ms,
+            output_range=output_range,
             cmms_url=config.cmms_url,
             request_overrides=config.cmms_request_overrides,
         )
@@ -179,21 +173,42 @@ def _apply_planned_adjustments(
 async def logic(
     model_id: str,
     online: bool,
+    selector: Optional[str] = None,
 ) -> Dict[str, Any]:
 
     try:
-        # --- Model config ---
+        # --- Model sync/config ---
+        bundle_path = None
+        model_source = model_id
+        if model_id != "none":
+            sync_result = get_model_provider().sync_with_registry(model_id, selector)
+            if sync_result.bundle_path is None:
+                return HTTPMessages.service_unavailable_mlflow(
+                    f"No cached MLflow bundle available for model_id={model_id} selector={sync_result.selector}"
+                )
+            bundle_path = sync_result.bundle_path
+            if sync_result.model_path is not None:
+                model_source = str(sync_result.model_path)
+            else:
+                return HTTPMessages.service_unavailable_mlflow(
+                    f"MLflow bundle is missing model artifacts for model_id={model_id} selector={sync_result.selector}"
+                )
+
         try:
-            config = load_model_config(model_id)
+            config = load_model_config(model_id, bundle_path=bundle_path, require_bundle=(model_id != "none"))
         except Exception:
+            if model_id != "none":
+                return HTTPMessages.service_unavailable_mlflow(
+                    f"MLflow bundle config is unavailable for model_id={model_id}"
+                )
             return HTTPMessages.model_config_not_found(model_id)
 
-        step = config.step * 1000                                  # seconds → ms
-        output_range = config.output_range * 3_600_000 // step    # hours → steps
-        mode = _mode_from_step(step)
+        step = config.step * 1000
+        input_range = config.input_range
+        output_range = config.output_range
 
         # --- HISTORICAL DATA ---
-        output = await _get_historical_data_payload(mode, config, step, online)
+        output = await _get_historical_data_payload(config, step, input_range, output_range, online)
         if isinstance(output, dict):
             return output
 
@@ -205,7 +220,7 @@ async def logic(
             return HTTPMessages.model_launch_aborted_no_data()
 
         # --- Model initialization ---
-        model = init_model(model_id, step, config.use_dynamic_normalization, config.fallback, config.model_type)
+        model = init_model(model_source, step, config.use_dynamic_normalization, config.fallback, config.model_type)
 
         # --- Weather ---
         weather_data = await _get_weather_payload(config, output_range)
@@ -241,7 +256,7 @@ async def logic(
             return HTTPMessages.unprocessable_entity_forecast(str(e))
 
         # --- CMMS planned postprocessing ---
-        planned_adjustments = await _get_planned_adjustments(mode, config, step)
+        planned_adjustments = await _get_planned_adjustments(config, step, output_range)
         preds, planned_applied_count = _apply_planned_adjustments(preds, pred_ts, planned_adjustments)
         if planned_applied_count:
             logger.info(

@@ -47,10 +47,11 @@ ML Server — сервис для запуска математических м
 
 TaskIQ Worker (фоново)
     → Берёт задачу из Redis Stream
-    → Загружает локальный config.json для model_id и определяет параметры прогноза
+  → Разрешает model_id через MLflow Registry по alias/version и синхронизирует bundle в локальный cache
+  → Загружает runtime-конфиг из bundle/configuration/cache_config.json и определяет параметры прогноза
     → Забирает историю из SCADA и при наличии координат дополнительно запрашивает погоду
-    → Загружает модель из /workspace/models/{model_id} (или работает в online-режиме для model_id = "none")
-    → Если config.json отсутствует, текущая реализация возвращает ошибку; fallback к MLflow-метаданным по object_reference не реализован
+  → Загружает модель из cached MLflow bundle/model (или работает в online-режиме для model_id = "none")
+  → При отсутствии MLflow bundle/config для offline-модели возвращает 503; fallback к `/workspace/models` для offline не используется
     → Выполняет прогноз
     → Сохраняет результат в Redis
 ```
@@ -83,7 +84,7 @@ ml-server/
         │   └── predict.py       ← Pydantic-схемы входных данных
         ├── forecast/
         │   ├── __init__.py
-        │   ├── config.py        ← ModelConfig + load_model_config (config.json)
+        │   ├── config.py        ← ModelConfig + load_model_config (MLflow bundle cache_config)
         │   ├── date.py
         │   ├── enums.py
         │   ├── evaluation.py
@@ -228,9 +229,9 @@ pytest -q
 
 > Pydantic-класс `PredictCreateSchema` (`src/api/data/predict.py`)
 
-Клиент передаёт **только два поля**. Все параметры прогноза (`archives`, `step`, `output_range` и др.)
-сервер читает самостоятельно из `config.json` в директории модели.
-Этот `config.json` является конфигурационным файлом конкретной модели и заполняется дата-инженером.
+Клиент передаёт `object_reference`, опциональный `model_id` и опциональный `model_selection`.
+Все runtime-параметры прогноза (`archives`, `step`, `output_range` и др.)
+сервер читает самостоятельно из MLflow serving bundle `cache_config.json`.
 
 #### Поля
 
@@ -262,10 +263,10 @@ pytest -q
 
 ---
 
-### 5.1.1 Конфигурация модели (`config.json`)
+### 5.1.1 Конфигурация модели (`cache_config.json`)
 
-Лежит рядом с файлом модели: `/workspace/models/{model_id}/config.json`.
-Это конфигурационный файл конкретной модели, который заполняется дата-инженером. Он описывает, какие источники данных нужны модели и с какими параметрами их запрашивать.
+Для offline serving runtime-конфиг лежит в MLflow bundle: `bundle/configuration/cache_config.json`.
+Этот файл описывает, какие источники данных нужны модели и с какими параметрами их запрашивать.
 
 **Логическая роль файла:**
 
@@ -273,7 +274,7 @@ pytest -q
 - задаёт параметры запросов к historical_data, weather, CMMS и другим источникам
 - используется сервером во время инференса; сервер сам этот файл не генерирует
 
-**Пример структуры `config.json`, который реально поддерживается текущим runtime:**
+**Пример структуры `cache_config.json`, который реально поддерживается текущим runtime:**
 
 ```json
 {
@@ -613,7 +614,7 @@ MLflow использует гибридный подход:
 
 ### Концепция «Паспорт данных»
 
-При обучении в MLflow записывается тег `data_source_config` — JSON с конфигурацией источника данных (тип БД, SQL-запрос, пути архивов). При запуске прогноза сервер читает этот тег по `run_id` и передаёт конфиг в загрузчик данных.
+При обучении в MLflow артефакты должны публиковаться в serving-совместимом bundle. При запуске прогноза сервер разрешает `model_id` + selector в Registry, скачивает `bundle` и использует `bundle/configuration/cache_config.json` как runtime-конфиг.
 
 ### MLflow UI
 
@@ -625,7 +626,7 @@ http://localhost:${MLFLOW_PORT:-5050}
 
 ```bash
 mlflow artifacts download --run-id <run-id> --path <artifact-path> -d /tmp/model_artifacts
-cp /tmp/model_artifacts/xgb_model.json /path/to/local/models/xgb/my_model/
+ls /tmp/model_artifacts/bundle
 ```
 
 ---
@@ -636,8 +637,8 @@ cp /tmp/model_artifacts/xgb_model.json /path/to/local/models/xgb/my_model/
 |----|-------------------------------|-----------------------------------------|-------------------------------------------|---------------|
 | 1  | `MAIN.md`, `PREDICT.md`       | Поле `fp_path` в запросе                | Переименовано в `object_reference`        | ✅ Исправлено |
 | 2  | `MAIN.md`, `PREDICT.md`       | Поле `model_path` в запросе             | Переименовано в `model_id`                | ✅ Исправлено |
-| 3  | `PREDICT.md`, `MAIN.md`       | Поле `version` (обязательное)           | Удалено из схемы; MLflow-тег не реализован| ✅ Исправлено |
-| 4  | `PREDICT.md`                  | `archives`, `step` и др. — в запросе   | Перенесены в `config.json` модели         | ✅ Исправлено |
+| 3  | `PREDICT.md`, `MAIN.md`       | Поле `version` (обязательное)           | Публичный selector теперь вынесен в `model_selection.version` / `model_selection.version_alias` | ✅ Исправлено |
+| 4  | `PREDICT.md`                  | `archives`, `step` и др. — в запросе   | Перенесены в MLflow runtime bundle config | ✅ Исправлено |
 | 5  | `MESSAGES.md`                 | Ключ `"fp_path"` в ответах              | Ключ `"object_reference"`                 | ✅ Исправлено |
 | 6  | `MAIN.md` (пример 200-ответа) | `model_confidence` — значимая метрика   | Всегда `1.0`, логика не реализована       | ⚠️ Открыто   |
 | 7  | `broker/tasks/predict.py`     | Описан поток с НДЦ                      | Вызов НДЦ **временно** закомментирован    | ⏳ Временно   |

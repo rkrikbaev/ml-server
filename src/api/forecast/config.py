@@ -4,7 +4,6 @@
 from typing import Any, Dict, List, Optional
 from pathlib import Path
 import json
-import yaml
 import logging
 import tempfile
 
@@ -308,7 +307,7 @@ def _load_model_config_from_mlflow(model_id: str) -> Optional[ModelConfig]:
     Strategy:
     1) try latest run by tag/param model_id
     2) try registered-model latest version by name=model_id
-    3) search common artifact paths for unified/yaml/json config
+    3) search cache_config.json in standard bundle paths
     """
     client = MlflowClient()
 
@@ -350,15 +349,10 @@ def _load_model_config_from_mlflow(model_id: str) -> Optional[ModelConfig]:
         return None
 
     artifact_candidates = (
-        "config_unified.yaml",
-        "config.yaml",
-        "config.json",
-        "artifacts/config_unified.yaml",
-        "artifacts/config.yaml",
-        "artifacts/config.json",
-        "model/config_unified.yaml",
-        "model/config.yaml",
-        "model/config.json",
+        "bundle/configuration/cache_config.json",
+        "configuration/cache_config.json",
+        "config/cache_config.json",
+        "cache_config.json",
     )
 
     for run_id in candidate_run_ids:
@@ -370,10 +364,7 @@ def _load_model_config_from_mlflow(model_id: str) -> Optional[ModelConfig]:
                     if not path.is_file():
                         continue
 
-                    if path.suffix.lower() in {".yaml", ".yml"}:
-                        with open(path) as f:
-                            payload = yaml.safe_load(f) or {}
-                    elif path.suffix.lower() == ".json":
+                    if path.suffix.lower() == ".json":
                         with open(path) as f:
                             payload = json.load(f)
                     else:
@@ -393,37 +384,63 @@ def _load_model_config_from_mlflow(model_id: str) -> Optional[ModelConfig]:
     return None
 
 
-def load_model_config(model_id: str) -> ModelConfig:
+def load_model_config(
+    model_id: str,
+    bundle_path: Optional[Path] = None,
+    require_bundle: bool = False,
+) -> ModelConfig:
     """
-    Load model configuration from config_unified.yaml in model directory,
-    with fallback to MLflow artifacts.
+    Load model configuration from synced MLflow bundle cache_config.json,
+    then local cache_config.json, with fallback to MLflow artifacts.
 
     :param str model_id: Model identifier — relative path under /workspace/models
         (e.g. "prophet/watt/h/AKMOLA/@regions/Akmola/load").
 
+    :param Optional[Path] bundle_path: Optional path to downloaded MLflow bundle.
+    :param bool require_bundle: If true and bundle_path is provided, do not fallback
+        to local/legacy sources when cache_config.json is absent in bundle.
+
     :return: Validated model configuration.
     :rtype: ModelConfig
 
-    :raises FileNotFoundError: If local config_unified.yaml is missing and no MLflow config is found.
+    :raises FileNotFoundError: If local cache_config.json is missing and no MLflow config is found.
     :raises ValueError: If configuration contains invalid values.
     """
+
+    if bundle_path is not None:
+        for rel_path in (
+            "configuration/cache_config.json",
+            "config/cache_config.json",
+            "cache_config.json",
+        ):
+            candidate = bundle_path / rel_path
+            if not candidate.is_file():
+                continue
+            with open(candidate) as f:
+                raw_config = json.load(f)
+                return _parse_model_config_payload(raw_config, str(candidate))
+
+        if require_bundle:
+            raise FileNotFoundError(
+                f"cache_config.json not found in MLflow bundle for model_id={model_id} at {bundle_path}"
+            )
 
     # Support environment variable for models directory (for testing)
     from os import getenv
     models_base_path = Path(getenv("MODELS_PATH", "/workspace/models"))
     
     model_dir = models_base_path / model_id
-    unified_yaml_path = model_dir / "config_unified.yaml"
-
-    if unified_yaml_path.is_file():
-        with open(unified_yaml_path) as f:
-            raw_config = yaml.safe_load(f) or {}
-            return _parse_model_config_payload(raw_config, str(unified_yaml_path))
+    local_cache_config_path = model_dir / "cache_config.json"
+    if local_cache_config_path.is_file():
+        with open(local_cache_config_path) as f:
+            raw_config = json.load(f)
+            return _parse_model_config_payload(raw_config, str(local_cache_config_path))
 
     mlflow_config = _load_model_config_from_mlflow(model_id)
     if mlflow_config is not None:
         return mlflow_config
 
     raise FileNotFoundError(
-        f"Model config not found in local file {unified_yaml_path} and no MLflow config found for model_id={model_id}"
+        f"Model config not found in local file {local_cache_config_path} "
+        f"and no MLflow cache_config found for model_id={model_id}"
     )

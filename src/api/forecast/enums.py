@@ -54,7 +54,9 @@ class QDS(IntEnum):
 
     @classmethod
     def noncritical(cls) -> List[int]:
-        return [1, 2, 4, 8, 16, 32, 64]
+        # QDS=16,32,64 is allowed for inference input in current policy.
+        # Keep only warning-level bits here that should degrade input quality.
+        return [1, 2, 4, 8]
 
     @classmethod
     def critical(cls) -> List[int]:

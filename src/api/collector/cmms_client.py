@@ -9,8 +9,6 @@ from fastapi.responses import JSONResponse
 
 from api import CLIENT_TIMEOUT_ALL, CLIENT_TIMEOUT_ONE, HEADERS, HTTPMessages
 from api.collector.http_client import HTTPClient
-from api.utils import generate_timestamp
-
 logger = logging.getLogger(__name__)
 
 
@@ -46,8 +44,21 @@ class CMMSClient(HTTPClient):
         )
 
     @staticmethod
-    def build_request(mode: str, step_ms: int, request_overrides: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        from_tp, to_tp = generate_timestamp(mode)
+    def build_request(
+        step_ms: int,
+        output_range: int,
+        request_overrides: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if step_ms <= 0:
+            raise ValueError("step_ms must be greater than zero")
+        if output_range <= 0:
+            raise ValueError("output_range must be greater than zero")
+
+        now_utc = datetime.now(timezone.utc)
+        current_hour = now_utc.replace(minute=0, second=0, microsecond=0)
+        from_tp = int(current_hour.timestamp() * 1000)
+        to_tp = int((current_hour + timedelta(seconds=output_range * (step_ms // 1000))).timestamp() * 1000)
+
         request_payload: Dict[str, Any] = {
             "from": from_tp,
             "to": to_tp,
@@ -149,12 +160,15 @@ class CMMSClient(HTTPClient):
 
     async def fetch_planned_series(
         self,
-        mode: str,
         step_ms: int,
+        output_range: int,
         cmms_url: Optional[str] = None,
         request_overrides: Optional[Dict[str, Any]] = None,
     ) -> JSONResponse | Dict[int, float]:
-        request_payload = self.build_request(mode, step_ms, request_overrides)
+        try:
+            request_payload = self.build_request(step_ms, output_range, request_overrides)
+        except ValueError as error:
+            return HTTPMessages.unprocessable_entity_forecast(str(error))
 
         if cmms_url:
             self.urls = [_normalize_runtime_url(cmms_url)]
