@@ -70,7 +70,7 @@ services:
     # CMD may not start the server (it can default to `python3`), causing the
     # container to exit with code 0. Provide an explicit command so the
     # container stays running and serves the UI on the mapped port.
-    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --default-artifact-root /mlflow/mlruns --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5050,127.0.0.1,127.0.0.1:5050,host.docker.internal
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --serve-artifacts --artifacts-destination /mlflow/mlruns --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5050,127.0.0.1,127.0.0.1:5050,host.docker.internal
     ports:
       - "${MLFLOW_PORT:-5050}:5000"
     volumes:

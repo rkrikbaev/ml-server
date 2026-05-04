@@ -39,11 +39,11 @@ Stage4 relies on config values that come from this raw structure (loaded in Stag
     },
     "weather": {
       "pattern": "forecast",
-      "lat": null,
-      "lon": null,
-      "url": null,
+      "lat": 43.25,
+      "lon": 76.92,
+      "url": "http://127.0.0.1:8050/api/v1/forecast",
       "units": "metric",
-      "hours": null
+      "hours": 24
     },
     "cmms": {
       "pattern": "planned",

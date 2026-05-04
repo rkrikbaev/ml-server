@@ -108,6 +108,7 @@ except Exception:
         "input_range": 168,
         "output_range": 24,
         "historical": {
+            "type": "rest_api",
             "pattern": "historic",
             "archives": ["/root/FP/.../archives/out_value"],
             "url": "http://host.docker.internal:7080/api/v1/read/archives",
@@ -116,14 +117,16 @@ except Exception:
             }
         },
         "weather": {
+            "type": "rest_api",
             "pattern": "forecast",
-            "lat": null,
-            "lon": null,
-            "url": null,
+            "lat": 43.25,
+            "lon": 76.92,
+            "url": "http://127.0.0.1:8050/api/v1/forecast",
             "units": "metric",
-            "hours": null
+            "hours": 24
         },
         "cmms": {
+            "type": "rest_api",
             "pattern": "planned",
             "url": null,
             "request_overrides": {}
