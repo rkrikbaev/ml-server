@@ -1,4 +1,4 @@
-.PHONY: help setup-test clean-test test mlflow-ui smoke-positive smoke-negative wait-api ml-model-status smoke-api train-xgb
+.PHONY: help setup-test clean-test test mlflow-ui smoke-positive smoke-negative wait-api ml-model-status smoke-api train-xgb notebook-up notebook-logs notebook-down
 
 MODEL_SERVICE ?= model-server
 PREDICT_URL ?= http://localhost:8030/predict
@@ -6,9 +6,10 @@ PREDICT_MODELS_DIR ?= ../local/mlruns
 TRAIN_MODELS_DIR ?= ../local/models
 TRAIN_MODEL_ID ?= /xgb
 TRAIN_LOOKBACK_DAYS ?= 30
-PREDICT_MODEL_ID ?= prophet_watt_h_AKMOLA_test
+PREDICT_MODEL_ID ?= root_FP_PROJECT_AKMOLA_VostVet_VES_models_P_watt
+PREDICT_MODEL_RUN_ID ?= 3ec5decd466b40aea7623e46ed690e43
 PREDICT_OBJECT_REFERENCE ?= /root/FP/PROJECT/AKMOLA/@regions/KOKSHETAU/Load/P_load/archives/out_value
-PREDICT_CONFIG_FILE ?= $(PREDICT_MODELS_DIR)/$(PREDICT_MODEL_ID)/cache_config.json
+PREDICT_CONFIG_FILE ?= $(PREDICT_MODELS_DIR)/$(PREDICT_MODEL_ID)/$(PREDICT_MODEL_RUN_ID)/bundle/configuration/cache_config.json
 PREDICT_MAX_ATTEMPTS ?= 30
 PREDICT_POLL_INTERVAL ?= 1
 
@@ -33,6 +34,9 @@ help:
 	@echo "  make train-xgb       - Fetch SCADA data and train XGBoost model"
 	@echo "                         vars: TRAIN_MODELS_DIR (default: ../local/models), TRAIN_MODEL_ID (default: /xgb), TRAIN_LOOKBACK_DAYS (default: 30)"
 	@echo "                         example: make train-xgb TRAIN_MODEL_ID=/xgb TRAIN_LOOKBACK_DAYS=60"
+	@echo "  make notebook-up     - Start Jupyter Notebook Server service"
+	@echo "  make notebook-logs   - Show Jupyter Notebook Server logs"
+	@echo "  make notebook-down   - Stop Jupyter Notebook Server service"
 
 setup-test:
 	@echo "⚙️  Setting up test environment..."
@@ -178,6 +182,19 @@ train-xgb:
 	@/Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python scripts/train_xgb.py \
 		--model-dir $(abspath $(TRAIN_MODELS_DIR)/$(TRAIN_MODEL_ID)) \
 		--lookback-days $(TRAIN_LOOKBACK_DAYS)
+
+notebook-up:
+	@echo "📓 Starting Jupyter Notebook Server..."
+	@docker compose up -d jupyter-notebook-server
+	@echo "✓ Jupyter Notebook is available on http://localhost:$${JUPYTER_PORT:-8888}"
+
+notebook-logs:
+	@echo "📝 Jupyter Notebook Server logs"
+	@docker compose logs --no-color --tail=120 jupyter-notebook-server
+
+notebook-down:
+	@echo "🛑 Stopping Jupyter Notebook Server..."
+	@docker compose stop jupyter-notebook-server
 
 .env.test:
 	@cp .env.test .env.test.bak 2>/dev/null || true

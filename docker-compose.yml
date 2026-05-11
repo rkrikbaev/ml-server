@@ -11,11 +11,11 @@ services:
     command: >
       bash -c "
         taskiq worker api.broker:broker --workers 8 &
-        python -u -m uvicorn api.server:app --host 0.0.0.0 --port 8000 &
+        python -u -m uvicorn api.server:app --host 0.0.0.0 --port 8030 &
         wait -n
       "
     ports:
-      - "${PORT:-8030}:8000"
+      - "${PORT:-8030}:8030"
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/workspace/server:/workspace/lib
@@ -76,6 +76,44 @@ services:
     volumes:
       - "../local/mlruns:/mlflow/mlruns"
       - "mlflow_data:/mlflow"
+    networks:
+      - ml
+
+  jupyter-notebook-server:
+    image: jupyter/scipy-notebook:python-3.11
+    container_name: jupyter_notebook_server
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    user: root
+    working_dir: /workspace
+    command: >
+      bash -lc "start-notebook.py
+      --ServerApp.ip=0.0.0.0
+      --ServerApp.port=8888
+      --no-browser
+      --ServerApp.allow_remote_access=True
+      --ServerApp.token=${JUPYTER_TOKEN:-ml-notebook}
+      --ServerApp.password=${JUPYTER_PASSWORD_HASH:-}"
+    ports:
+      - "${JUPYTER_BIND_ADDRESS:-0.0.0.0}:${JUPYTER_PORT:-8888}:8888"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_REGISTRY_URI=http://mlflow:5000
+      - MLFLOW_DEFAULT_ALIAS=Production
+      - ML_SERVER_PREDICT_URL=http://model-server:8030/predict
+      - MODELS_PATH=/workspace/models
+    volumes:
+      - "../local/${MODEL:-models}:/workspace/models"
+      - "../local/mlruns:/mlflow/mlruns"
+      - "./procedures:/workspace/procedures"
+      - "../study:/workspace/study"
+    depends_on:
+      - mlflow
+      - redis
+    tty: true
+    stdin_open: true
     networks:
       - ml
 

@@ -12,3 +12,6 @@ local/
 .DS_Store
 mlflow_artifacts
 .env
+mlflow.db
+tests/fixtures/test_data/sample.csv
+tests/fixtures/test_data/sample.csv
