@@ -90,6 +90,25 @@ def test_sync_skips_download_when_valid_cached_bundle_exists(tmp_path: Path) -> 
     assert client.download_calls == 0
 
 
+def test_sync_normalizes_legacy_nested_bundle_layout_without_download(tmp_path: Path) -> None:
+    client = _FakeMlflowClient(alias_version="4", run_id="run-444")
+    provider = _new_provider(tmp_path, client)
+
+    bundle = tmp_path / "legacy-model" / "Production" / "4" / "bundle"
+    nested_bundle = bundle / "bundle"
+    (nested_bundle / "configuration").mkdir(parents=True, exist_ok=True)
+    (nested_bundle / "model").mkdir(parents=True, exist_ok=True)
+    (nested_bundle / "configuration" / "cache_config.json").write_text("{}", encoding="utf-8")
+
+    result = provider.sync_with_registry("legacy-model", "Production")
+
+    assert result.bundle_path == bundle
+    assert result.config_path == bundle / "configuration" / "cache_config.json"
+    assert (bundle / "configuration" / "cache_config.json").is_file()
+    assert not (bundle / "bundle").exists()
+    assert client.download_calls == 0
+
+
 def test_sync_uses_latest_cached_selector_bundle_on_registry_failure(tmp_path: Path) -> None:
     client = _FailingResolveClient(alias_version="8", run_id="run-888")
     provider = _new_provider(tmp_path, client)
