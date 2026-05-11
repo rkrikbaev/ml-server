@@ -68,8 +68,15 @@ class ModelProvider:
 
             lock = self._download_lock(model_id, effective_selector, model_version)
             with lock:
+                self._normalize_bundle_layout(bundle_path)
                 if not self._is_bundle_valid(bundle_path):
                     self._download_bundle(run_id, cached_version_path)
+                    self._normalize_bundle_layout(bundle_path)
+
+                if not self._is_bundle_valid(bundle_path):
+                    raise RuntimeError(
+                        f"Downloaded bundle has no canonical config path: {bundle_path}/configuration/cache_config.json"
+                    )
 
                 self._write_metadata(cached_version_path, model_id, effective_selector, model_version, run_id)
                 self._touch(cached_version_path)
@@ -285,6 +292,33 @@ class ModelProvider:
         if not bundle_path.is_dir():
             return False
         return (bundle_path / "configuration/cache_config.json").is_file()
+
+    @staticmethod
+    def _normalize_bundle_layout(bundle_path: Path) -> None:
+        """Normalize legacy bundle/bundle layout into canonical bundle layout."""
+        if not bundle_path.is_dir():
+            return
+
+        canonical_config = bundle_path / "configuration/cache_config.json"
+        if canonical_config.is_file():
+            return
+
+        nested_bundle_path = bundle_path / "bundle"
+        nested_config = nested_bundle_path / "configuration/cache_config.json"
+        if not nested_config.is_file():
+            return
+
+        for child in list(nested_bundle_path.iterdir()):
+            target = bundle_path / child.name
+            if target.exists():
+                if target.is_dir():
+                    rmtree(target, ignore_errors=True)
+                else:
+                    target.unlink(missing_ok=True)
+            move(str(child), str(target))
+
+        if nested_bundle_path.exists():
+            rmtree(nested_bundle_path, ignore_errors=True)
 
     def _download_lock(self, model_id: str, selector: str, model_version: str) -> RLock:
         key = f"{model_id}|{selector}|{model_version}"

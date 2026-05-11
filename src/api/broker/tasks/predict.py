@@ -196,12 +196,16 @@ async def logic(
 
         try:
             config = load_model_config(model_id, bundle_path=bundle_path, require_bundle=(model_id != "none"))
-        except Exception:
+        except FileNotFoundError as error:
             if model_id != "none":
-                return HTTPMessages.service_unavailable_mlflow(
-                    f"MLflow bundle config is unavailable for model_id={model_id}"
-                )
+                return HTTPMessages.service_unavailable_mlflow(str(error))
             return HTTPMessages.model_config_not_found(model_id)
+        except ValueError as error:
+            if model_id != "none":
+                return HTTPMessages.unprocessable_entity_forecast(
+                    f"Invalid MLflow bundle config for model_id={model_id}: {error}"
+                )
+            return HTTPMessages.unprocessable_entity_forecast(str(error))
 
         step = config.step * 1000
         input_range = config.input_range
