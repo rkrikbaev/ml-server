@@ -75,42 +75,7 @@ print(output.metadata['intervals'])  # {'lower': [...], 'upper': [...]}
 
 ---
 
-### 3. **`ml-server/src/api/forecast/integration_example.py`** (NEW)
-Пример интеграции единого интерфейса с FastAPI сервером.
-
-**Содержит**:
-- `ForecastRequest` — Pydantic модель для HTTP запроса
-- `ForecastResponse` — Pydantic модель для HTTP ответа
-- `/forecast` endpoint — основной endpoint для прогноза
-- `/load_model` endpoint — явная загрузка модели
-- `/health` endpoint — проверка здоровья сервера
-- `_load_model()` — вспомогательная функция для загрузки по ID
-- `predict_sync()` — синхронный вспомогательный метод
-
-**Паттерн использования**:
-```
-POST /forecast
-Content-Type: application/json
-
-{
-    "model_id": "prophet_watt_AKMOLA",
-    "features": {"ds": ["2024-01-01", "2024-01-02"]},
-    "metadata": {"region": "AKMOLA"},
-    "config": {"batch_size": 32}
-}
-
-Response:
-{
-    "model_id": "prophet_watt_AKMOLA",
-    "predictions": [1.5, 2.3],
-    "confidence": [0.92, 0.85],
-    "metadata": {"model_type": "prophet", ...}
-}
-```
-
----
-
-### 4. **`ml-server/scripts/test_model_interface.py`** (NEW)
+### 3. **`ml-server/scripts/test_model_interface.py`** (NEW)
 Примеры и автоматические тесты для проверки интерфейса.
 
 **Содержит**:
@@ -282,7 +247,6 @@ inp = PredictionInput(features={'ds': ['2024-01-01', '2024-01-02']})
 - **`ml-server/docs/MODEL_STORAGE_STRUCTURE.md`** — полное описание структуры хранения и интеграции
 - **`ml-server/src/api/forecast/base_interface.py`** — документация в docstrings
 - **`ml-server/src/api/forecast/adapters.py`** — примеры адаптеров с комментариями
-- **`ml-server/src/api/forecast/integration_example.py`** — FastAPI пример
 - **`ml-server/scripts/test_model_interface.py`** — примеры использования и тесты
 
 ---

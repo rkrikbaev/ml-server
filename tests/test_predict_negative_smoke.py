@@ -4,8 +4,9 @@ import time
 import requests
 
 
-API_URL = os.getenv("PREDICT_API_URL", "http://localhost:18888/predict")
-OBJECT_REFERENCE = "/KAZ/AKMOLA/AKMOLA/@models/P_WATT"
+API_URL = os.getenv("PREDICT_API_URL", "http://localhost:8030/predict")
+TASKS_URL = os.getenv("PREDICT_TASKS_URL", "http://localhost:8030/tasks")
+CLIENT_OBJECT_REF = "/KAZ/AKMOLA/AKMOLA/@models/P_WATT"
 MODEL_ID = "prophet_watt_h_AKMOLA_test"
 
 
@@ -14,10 +15,15 @@ def _post_json(payload):
     return response.status_code, response.json()
 
 
+def _get_json(task_id):
+    response = requests.get(f"{TASKS_URL}/{task_id}", timeout=30)
+    return response.status_code, response.json()
+
+
 def test_predict_smoke_historical_data_unavailable_returns_503_done():
     first_status, first = _post_json(
         {
-            "object_reference": OBJECT_REFERENCE,
+            "client_object_ref": CLIENT_OBJECT_REF,
             "model_id": MODEL_ID,
         }
     )
@@ -25,14 +31,14 @@ def test_predict_smoke_historical_data_unavailable_returns_503_done():
     assert first_status == 202
     assert first["status"] == 202
     assert first["state"] == "start"
-    assert first["object_reference"] == OBJECT_REFERENCE
+    assert first["client_object_ref"] == CLIENT_OBJECT_REF
     assert first["task_id"]
 
     task_id = first["task_id"]
     final_response = None
 
     for _ in range(20):
-        current_status, current = _post_json({"task_id": task_id})
+        current_status, current = _get_json(task_id)
         assert current["task_id"] == task_id
 
         if current["state"] == "processing":
@@ -47,5 +53,5 @@ def test_predict_smoke_historical_data_unavailable_returns_503_done():
 
     assert final_response is not None, "task did not reach done state in time"
     assert final_response["status"] == 503
-    assert final_response["object_reference"] == OBJECT_REFERENCE
+    assert final_response["client_object_ref"] == CLIENT_OBJECT_REF
     assert "HISTORICAL_DATA is not available" in final_response["message"]

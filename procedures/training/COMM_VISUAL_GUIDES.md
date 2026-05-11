@@ -269,8 +269,8 @@ This means during inference, system knows where to get data! ✓
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                        TRAINING PIPELINE                        │
-│                        DATA FLOW DIAGRAM                        │
+│                        TRAINING PIPELINE                       │
+│                        DATA FLOW DIAGRAM                       │
 └────────────────────────────────────────────────────────────────┘
 
                     External REST APIs
@@ -289,58 +289,58 @@ This means during inference, system knows where to get data! ✓
     │   Handler   │                   │   Builder   │
     └──────┬──────┘                   └────▲────────┘
            │                                │
-    [STEP 1]                           [STEP 6]
-  Request                           Return Results
- Reception                               │
-           │                            │
-           ├────────────────────────────┤
-           │                            │
-           ▼                            │
-    ┌──────────────────┐                │
-    │ Validate Request │                │
-    │  & Schema        │                │
-    └────────┬─────────┘                │
-             │                          │
-    [STEP 2] │                          │
- Data        │                          │
-Collection  │                          │
-             ▼                          │
-    ┌──────────────────┐                │
-    │  Data Collector  │                │
-    │  (from APIs)     │                │
-    └────────┬─────────┘                │
-             │                          │
-    [STEP 3] │                          │
-Preprocessing│                          │
-             ▼                          │
-    ┌──────────────────┐                │
-    │  Preprocessor    │                │
-    │  • Clean         │                │
-    │  • Validate      │                │
-    │  • Rename        │                │
-    └────────┬─────────┘                │
-             │                          │
-    [STEP 4] │                          │
-Training     │                          │
-             ▼                          │
-    ┌──────────────────┐                │
-    │ Model Trainer    │◄───────────────┤
-    │ • Prophet        │                │
-    │ • XGBoost        │                │
-    └────────┬─────────┘                │
-             │                          │
-    [STEP 5] │                          │
-MLflow       │                          │
-Logging      ▼                          │
-    ┌──────────────────┐                │
-    │  MLflow Client   │                │
-    │  • start_run()   │                │
-    │  • set_tag()     │                │
-    │  • log_metric()  │                │
-    │  • log_model()   │                │
-    └────────┬─────────┘                │
-             │                          │
-             ├──────────────────────────┘
+       [STEP 1]                          [STEP 6]
+        Request                        Return Results
+       Reception                            │
+           │                                │
+           ├────────────────────────────────┤
+           │                                │
+           ▼                                │
+    ┌──────────────────┐                    │
+    │ Validate Request │                    │
+    │  & Schema        │                    │
+    └────────┬─────────┘                    │
+             │                              │
+    [STEP 2] │                              │
+ Data        │                              │
+Collection   │                              │
+             ▼                              │
+    ┌──────────────────┐                    │
+    │  Data Collector  │                    │
+    │  (from APIs)     │                    │
+    └────────┬─────────┘                    │
+             │                              │
+    [STEP 3] │                              │
+Preprocessing│                              │
+             ▼                              │
+    ┌──────────────────┐                    │
+    │  Preprocessor    │                    │
+    │  • Clean         │                    │
+    │  • Validate      │                    │
+    │  • Rename        │                    │
+    └────────┬─────────┘                    │
+             │                              │
+    [STEP 4] │                              │
+Training     │                              │
+             ▼                              │
+    ┌──────────────────┐                    │
+    │ Model Trainer    │◄───────────────────┤
+    │ • Prophet        │                    │
+    │ • XGBoost        │                    │
+    └────────┬─────────┘                    │
+             │                              │
+    [STEP 5] │                              │
+MLflow       │                              │
+Logging      ▼                              │
+    ┌──────────────────┐                    │
+    │  MLflow Client   │                    │
+    │  • start_run()   │                    │
+    │  • set_tag()     │                    │
+    │  • log_metric()  │                    │
+    │  • log_model()   │                    │
+    └────────┬─────────┘                    │
+             │                              │
+             ├──────────────────────────────┘
              │
              ▼
     ┌──────────────────────┐
@@ -396,8 +396,8 @@ REQUEST RECEIVED
     ║ Duration: 5-30 seconds                ║
     ╚═══════════════════════════════════════╝
        │
-      ├─ Connection Failed? → Return 503 ❌
-      ├─ Timeout? → Return 503 ❌
+       ├─ Connection Failed? → Return 503 ❌
+       ├─ Timeout? → Return 503 ❌
        │
        ▼
     ╔═══════════════════════════════════════╗
@@ -508,9 +508,9 @@ mlflow_data/
 │           │  timestamp: 1713354000000
 │           └─ ...
 │
-└─ artifacts/ ← Artifact Store (Filesystem)
+└─ mlruns/ ← Artifact Store (Filesystem)
    │
-   ├─ 1/  ← Experiment_id 1 (/KAZ/AKMOLA/P_WATT)
+   ├─ 1/  ← Experiment_id 1
    │  │
    │  ├─ abc123def456/  ← Run_id (first run)
    │  │  │
@@ -584,8 +584,8 @@ EXCEPTION HANDLING DURING TRAINING
    503       400           422        500        503
    │         │             │          │          │
    └────────┬┴────────┬────┴──────┬───┴──────┬───┘
-            │         │          │          │
-            ▼         ▼          ▼          ▼
+            │         │           │          │
+            ▼         ▼           ▼          ▼
        {               {         {          {
        "status":     "status": "status":   "status":
        "error",      "error", "error",    "error",
@@ -594,9 +594,9 @@ EXCEPTION HANDLING DURING TRAINING
        collect      data"    format"    unavail"
        data"       }         }          }
             │         │          │          │
-            └────────┴──────┬────┴──────┬───┘
-                            │          │
-                            ▼          ▼
+            └─────────┴─────┬────┴──────┬───┘
+                            │           │
+                            ▼           ▼
                         SCADA System receives error
                         Training NOT logged to MLflow
                         No model created

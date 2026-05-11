@@ -39,7 +39,7 @@ class PredictCreateSchema(BaseModel):
     """
     Settings for prediction creation.
 
-    The client supplies only the object reference and the model identifier.
+    The client supplies only the client object reference and the model identifier.
     All other parameters (archives, step, output_range, …) are read from
     the model's config.json on the server side.
     """
@@ -47,7 +47,7 @@ class PredictCreateSchema(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
     model_id: str = "none"
-    object_reference: str
+    client_object_ref: str
     model_selection: ModelSelectionSchema | None = None
 
     @computed_field
@@ -73,13 +73,13 @@ class PredictCreateSchema(BaseModel):
             raise ValueError("'model_id' must be non-empty")
         return v
 
-    @field_validator("object_reference")
+    @field_validator("client_object_ref")
     @classmethod
-    def check_object_reference(cls, v: str) -> str:
+    def check_client_object_ref(cls, v: str) -> str:
         if len(v) == 0:
-            raise ValueError("'object_reference' must be non-empty")
+            raise ValueError("'client_object_ref' must be non-empty")
         if "/" not in v and "\\" not in v:
-            raise ValueError("'object_reference' must contain '/' or '\\'")
+            raise ValueError("'client_object_ref' must contain '/' or '\\'")
         return v
 
 

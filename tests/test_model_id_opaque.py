@@ -25,14 +25,14 @@ def test_record_task_created_uses_model_type_from_config(monkeypatch, tmp_path) 
     model_id = "prophet_watt_h_AKMOLA_test"
     model_dir = tmp_path / model_id
     model_dir.mkdir(parents=True, exist_ok=True)
-    (model_dir / "config.json").write_text(json.dumps({"model_type": "prophet"}), encoding="utf-8")
+    (model_dir / "config_unified.yaml").write_text("model_type: prophet\n", encoding="utf-8")
 
     monkeypatch.setattr(task_monitor, "MODELS_PATH", tmp_path)
     task_monitor._TASKS.clear()
 
     task_monitor.record_task_created(
         task_id="task-model-id-opaque",
-        object_reference="/KAZ/AKMOLA/@models/P_WATT",
+        client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
         model_id=model_id,
     )
 

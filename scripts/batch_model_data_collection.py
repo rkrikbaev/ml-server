@@ -154,7 +154,8 @@ def _load_inputs_map(inputs_csv: Path) -> dict[str, list[str]]:
 
 def _is_flat_format(df: pd.DataFrame) -> bool:
     """Return True when the CSV already has flat window columns (no JSON configuration)."""
-    return {"input_range", "output_range", "step", "model_path"}.issubset(df.columns)
+    # model_path is optional in flat CSV; older exports may not include it.
+    return {"input_range", "output_range", "step"}.issubset(df.columns)
 
 
 def _read_models_csv(path: Path) -> pd.DataFrame:
@@ -202,7 +203,7 @@ def load_model_tasks(
                 input_range=int(row.get("input_range", 72)),
                 output_range=int(row.get("output_range", 24)),
                 step=int(row.get("step", 3600)),
-                model_path=str(row.get("model_path", "")),
+                model_path="" if pd.isna(row.get("model_path")) else str(row.get("model_path", "")),
             )
             config_raw: dict[str, Any] = {}
         else:
@@ -498,6 +499,8 @@ def _run_single_model(
     return {
         "status": "ok",
         "object_ref": task.object_ref,
+        "output_range": int(task.window.output_range),
+        "train_snapshot_path": str(train_path),
         "output_dir": str(model_root),
         "rows_total": len(frame),
         "rows_train": len(train_df),
@@ -508,8 +511,8 @@ def _run_single_model(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Batch Stage 0-3 model data collection from model list CSV")
-    parser.add_argument("--models-csv", type=Path, default=Path("../local/model_list__models__short.csv"))
-    parser.add_argument("--inputs-csv", type=Path, default=Path("../local/model_list__inputs.csv"))
+    parser.add_argument("--models-csv", type=Path, default=Path("../local/models_list.csv"))
+    parser.add_argument("--inputs-csv", type=Path, default=Path("../local/models_inputs.csv"))
     parser.add_argument("--output-root", type=Path, default=Path("../local/model_data_collection"))
     parser.add_argument("--horizon-key", type=str, default=None, help="Override horizon key: day/month/year")
     parser.add_argument("--api-url", type=str, default=None, help="Historical API endpoint")

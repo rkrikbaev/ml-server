@@ -10,7 +10,7 @@
 MLFLOW ARTIFACT STORE:
 local/
 ├── mlruns/
-│   ├── 1/                          # Experiment ID
+│   ├── 1/                                       # Experiment ID
 │   └── manual_reg/
 │       └── 848387cc60dd48ef8abec7a643493bde/    ◄─ RUN ID
 │           ├── artifacts/
@@ -98,11 +98,11 @@ local/
                                     │
                     ┌───────────────┼───────────────┐
                     ▼               ▼               ▼
-              ┌──────────┐    ┌──────────┐    ┌──────────┐
-              │ Historical  │  │ Weather  │  │  CMMS    │
-              │ Data Loader │  │ Loader   │  │ Loader   │
-              │ (ACTIVE)    │  │(Disabled)│  │(Disabled)│
-              └──────────┘    └──────────┘    └──────────┘
+              ┌─────────────┐    ┌──────────┐    ┌──────────┐
+              │ Historical  │    │ Weather  │    │  CMMS    │
+              │ Data Loader │    │ Loader   │    │ Loader   │
+              │ (ACTIVE)    │    │(Disabled)│    │(Disabled)│
+              └─────────────┘    └──────────┘    └──────────┘
                     │               │               │
                     └───────────────┬───────────────┘
                                     ▼
@@ -120,7 +120,7 @@ local/
                                     │
                                     ▼
                     ┌──────────────────────────────┐
-                    │ Prediction: 24-hour forecast │
+                    │ Prediction: N-hour forecast  │
                     └──────────────────────────────┘
 ```
 

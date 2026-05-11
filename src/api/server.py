@@ -15,7 +15,7 @@ from fastapi.exceptions import RequestValidationError, HTTPException
 
 from api.utils import get_fields
 from .broker import broker, api_predict
-from .data import PredictCreateSchema, PredictSchema
+from .data import PredictCreateSchema
 from .forecast import load_model_config
 from .message import HTTPState, HTTPMessages
 from .task_monitor import get_task, list_tasks, record_task_created, record_task_done, record_task_processing, get_models_analytics, get_model_runs
@@ -266,6 +266,7 @@ async def ui_model_detail(model_id: str = Query(..., min_length=1)) -> JSONRespo
             "state": last_run_task.get("display_state"),
             "worker": last_run_task.get("worker"),
             "received_at": last_run_task.get("received_at"),
+            "client_object_ref": last_run_task.get("client_object_ref"),
             "object_reference": last_run_task.get("object_reference"),
         }
 
@@ -381,19 +382,18 @@ async def ui_task_detail(task_id: str) -> JSONResponse:
     )
 
 @app.post("/predict")
-async def process_data(data: PredictSchema = Body(...)) -> JSONResponse:
-    # 1st run
-    if isinstance(data, PredictCreateSchema):  # 202: START
-        task = await api_predict.kiq(data)
-        record_task_created(task.task_id, data.object_reference, data.model_id)
-        return messages.to_json_response(
-            messages.accepted_start(task.task_id, data.object_reference),
-            task.task_id,
-            HTTPState.START
-        )
+async def process_data(data: PredictCreateSchema = Body(...)) -> JSONResponse:
+    task = await api_predict.kiq(data)
+    record_task_created(task.task_id, data.client_object_ref, data.model_id)
+    return messages.to_json_response(
+        messages.accepted_start(task.task_id, data.client_object_ref),
+        task.task_id,
+        HTTPState.START
+    )
 
-    # 2nd run
-    task_id = data.task_id
+
+@app.get("/tasks/{task_id}")
+async def poll_task(task_id: str) -> JSONResponse:
 
     is_ready = await broker.result_backend.is_result_ready(task_id)
     if not is_ready:  # 202: PROCESSING

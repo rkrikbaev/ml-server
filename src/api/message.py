@@ -87,10 +87,10 @@ class HTTPMessages:
 
     # 202
     @classmethod
-    def accepted_start(cls, id: str, fp_path: str) -> JSONResponse:
+    def accepted_start(cls, id: str, client_object_ref: str) -> JSONResponse:
         content = cls.response(HTTPStatuses.SC202)
         content["task_id"] = id
-        content["object_reference"] = fp_path
+        content["client_object_ref"] = client_object_ref
         return content
 
     @classmethod

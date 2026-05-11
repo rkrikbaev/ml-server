@@ -128,14 +128,14 @@ def _display_state(task: dict[str, Any], now: datetime | None = None) -> str:
     return f"done {status_code}" if status_code else "done"
 
 
-def _make_task(task_id: str, object_reference: str, model_id: str) -> dict[str, Any]:
+def _make_task(task_id: str, client_object_ref: str, model_id: str) -> dict[str, Any]:
     now = _utc_now()
     return {
         "task_id": task_id,
         "task_name": DEFAULT_TASK_NAME,
         "queue": DEFAULT_QUEUE,
         "priority": "normal",
-        "object_reference": object_reference,
+        "client_object_ref": client_object_ref,
         "model_id": model_id,
         "model_type": _infer_model_type(model_id),
         "state": "start",
@@ -147,7 +147,7 @@ def _make_task(task_id: str, object_reference: str, model_id: str) -> dict[str, 
         "expires_at": None,
         "worker": None,
         "request": {
-            "object_reference": object_reference,
+            "client_object_ref": client_object_ref,
             "model_id": model_id,
         },
         "sources": _detect_sources(model_id),
@@ -165,9 +165,9 @@ def _make_task(task_id: str, object_reference: str, model_id: str) -> dict[str, 
     }
 
 
-def record_task_created(task_id: str, object_reference: str, model_id: str) -> None:
+def record_task_created(task_id: str, client_object_ref: str, model_id: str) -> None:
     with _LOCK:
-        task = _make_task(task_id, object_reference, model_id)
+        task = _make_task(task_id, client_object_ref, model_id)
         task["poll_history"].append({
             "timestamp": _iso(task["received_at"]),
             "status": 202,
@@ -244,7 +244,7 @@ def list_tasks(
         worker_name = item.get("worker") or "unassigned"
         haystack = " ".join([
             item.get("task_id", ""),
-            item.get("object_reference", ""),
+            item.get("client_object_ref", ""),
             item.get("model_id", ""),
             worker_name,
         ]).lower()

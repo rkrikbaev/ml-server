@@ -18,7 +18,8 @@ The service is built on FastAPI + TaskIQ + Redis and resolves offline model bund
 - Queue/result backend: Redis.
 - Model loading and inference: `src/api/forecast/*`.
 - Offline model resolution: MLflow Registry -> cached bundle in `/tmp/mlserver_registry_cache`.
-- Local runtime stack: `docker-compose.yml` (`model-server`, `redis`, `mlflow`).
+- Notebook workflow: Jupyter Notebook Server for interactive training and long-horizon forecast experiments.
+- Local runtime stack: `docker-compose.yml` (`model-server`, `redis`, `mlflow`, `jupyter-notebook-server`).
 
 ## Quick start (Docker)
 
@@ -33,6 +34,9 @@ Default ports (can be overridden by env vars):
 - API: `http://localhost:8030`
 - Redis: `localhost:6379`
 - MLflow UI: `http://localhost:5050`
+- Jupyter Notebook: `http://localhost:8888` (token: `ml-notebook` by default, configurable via `JUPYTER_TOKEN`)
+
+Open Jupyter and use notebooks under `/workspace/study` or `/workspace/procedures` to train models, log artifacts to MLflow, and validate forecasts through the async `/predict` flow.
 
 ## Local development (without Docker API process)
 
@@ -98,6 +102,72 @@ make test-predict PREDICT_MODEL_ID=model3
 make ml-model-status
 make smoke-api
 ```
+
+## Notebook quick recipe
+
+From `ml-server` directory:
+
+```bash
+make notebook-up
+make notebook-logs
+```
+
+Open Jupyter at `http://localhost:8888` (or `${JUPYTER_PORT}` if overridden).
+
+Optional environment variables for notebook predict bootstrap:
+
+```bash
+export ML_SERVER_PREDICT_URL=http://model-server:8000/predict
+export ML_SERVER_MODEL_ID=prophet_watt_h_AKMOLA_test
+export ML_SERVER_OBJECT_REFERENCE=/root/FP/PROJECT/AKMOLA/@regions/KOKSHETAU/Load/P_load/archives/out_value
+export ML_SERVER_VERSION_ALIAS=Production
+export ML_SERVER_POLL_INTERVAL=1
+export ML_SERVER_MAX_ATTEMPTS=60
+```
+
+Addressing note:
+- If code runs inside Jupyter container, use `http://model-server:8000/predict` (recommended) or `http://host.docker.internal:8030/predict`.
+- If code runs on host machine, use `http://localhost:8030/predict`.
+- Do not use `http://0.0.0.0:8030/predict` as a client destination.
+
+These variables are consumed by the long-term forecast bootstrap code in the study notebook and allow selecting model, alias, and polling behavior without changing notebook code.
+
+## Jupyter remote access setup
+
+For access from another machine, configure host binding and strong authentication before startup.
+
+1. Set remote-access variables:
+
+```bash
+export JUPYTER_BIND_ADDRESS=0.0.0.0
+export JUPYTER_PORT=8888
+export JUPYTER_TOKEN='<strong-random-token>'
+```
+
+2. Optional: use password hash in addition to token:
+
+```bash
+python -c "from jupyter_server.auth import passwd; print(passwd())"
+export JUPYTER_PASSWORD_HASH='sha1:...'
+```
+
+3. Restart notebook service:
+
+```bash
+cd ml-server
+make notebook-down
+make notebook-up
+```
+
+4. Connect from remote host:
+
+```text
+http://<server-ip>:<JUPYTER_PORT>
+```
+
+Security recommendation:
+- Do not expose Jupyter to the public internet without firewall rules/VPN/reverse proxy TLS.
+- Prefer opening access only from trusted IP ranges.
 
 ## Testing
 

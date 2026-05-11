@@ -15,7 +15,7 @@ from api.data.predict import PredictCreateSchema
 def test_predict_selector_defaults_to_production() -> None:
     payload = PredictCreateSchema(
         model_id="prophet_watt_h_AKMOLA_test",
-        object_reference="/KAZ/AKMOLA/@models/P_WATT",
+        client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
     )
     assert payload.selector == "Production"
 
@@ -23,7 +23,7 @@ def test_predict_selector_defaults_to_production() -> None:
 def test_predict_selector_uses_alias() -> None:
     payload = PredictCreateSchema(
         model_id="prophet_watt_h_AKMOLA_test",
-        object_reference="/KAZ/AKMOLA/@models/P_WATT",
+        client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
         model_selection={"version_alias": "champion"},
     )
     assert payload.selector == "champion"
@@ -32,7 +32,7 @@ def test_predict_selector_uses_alias() -> None:
 def test_predict_selector_uses_version() -> None:
     payload = PredictCreateSchema(
         model_id="prophet_watt_h_AKMOLA_test",
-        object_reference="/KAZ/AKMOLA/@models/P_WATT",
+        client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
         model_selection={"version": "17"},
     )
     assert payload.selector == "17"
@@ -42,7 +42,7 @@ def test_predict_selector_rejects_alias_and_version_together() -> None:
     try:
         PredictCreateSchema(
             model_id="prophet_watt_h_AKMOLA_test",
-            object_reference="/KAZ/AKMOLA/@models/P_WATT",
+            client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
             model_selection={"version": "17", "version_alias": "champion"},
         )
     except ValidationError:
