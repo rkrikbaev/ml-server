@@ -87,7 +87,7 @@ Stage 4: Data Collection
   │   ├─ Historical.fetch_model_data() → SCADA archives
   │   ├─ Weather.fetch() → optional weather API
   │   └─ CMMS.fetch_planned_series() → optional maintenance
-  └─ Output: {historical_data, weather_data, cmms_payload, qds}
+  └─ Output: {historical_data, weather_data, cmms_payload, health_flag}
   
 Stage 5: Inference
   ├─ Input: Historical data + weather (optional)
@@ -101,7 +101,7 @@ Stage 6: Post-Processing
   ├─ Input: Predictions + CMMS payload + quality assessment
   ├─ Actions:
   │   ├─ _apply_planned_adjustments() → adjust by timestamp
-  │   ├─ count_input_qds() → quality score
+  │   ├─ count_input_health() → quality score
   │   └─ _build_result() → final response structure
   └─ Output: HTTP response {status, data, message, quality}
   
@@ -178,7 +178,7 @@ Client HTTP Response
       "min": 100.0,
       "max": 150.0,
       "mean": 125.0,
-      "qds": 95
+      "health_flag": 95
     },
     "output_statistics": {
       "min": 125.2,
@@ -271,7 +271,7 @@ HTTP 422 "Forecast execution error: ..."
 ```
 
 **Recovery:** 
-- Check input_statistics.qds (data quality)
+- Check input_statistics.health_flag (data quality)
 - Verify model files exist in model registry
 - Review model adapter logs
 
@@ -333,7 +333,7 @@ HTTP 404 or stale task state
 | `_get_weather_payload()` | `tasks/predict.py` | Fetch weather (optional) |
 | `_get_planned_adjustments()` | `tasks/predict.py` | Fetch CMMS (optional) |
 | `HistoricalDataClient.fetch_model_data()` | `collector/historical_client.py` | API call |
-| `count_input_qds()` | `forecast/evaluation.py` | Calculate quality score |
+| `count_input_health()` | `forecast/evaluation.py` | Calculate quality score |
 
 ### Stage 5: Inference
 
@@ -386,7 +386,7 @@ HTTP 404 or stale task state
 | `REDIS_URL` | `config.py:5` | `redis://redis:6379/0` | Broker connection |
 | `REDIS_TIMEOUT` | `config.py:6` | `3600` | Result TTL |
 | `TEST_MODE` | `broker.py:8` | `false` | Use in-memory broker |
-| `MODEL_REGISTRY_CACHE_DIR` | `docker-compose.yml` | `/tmp/mlserver_registry_cache` | MLflow cache |
+| `MODEL_REGISTRY_CACHE_DIR` | `docker-compose.yml` | `/tmp/local_models_cache` | MLflow cache |
 
 ### Stage 11: Testing
 
@@ -516,7 +516,7 @@ docker-compose exec model-server /bin/bash
 | High memory usage | Docker memory limit hit | Increase deploy.resources.limits.memory |
 | Tasks queuing up | worker pool too small | Increase `--workers` in docker-compose.yml command |
 | Weather always missing | logs show "weather=None" | Check WEATHER_URL env var, may be intentional on test |
-| QDS very low | quality < 50% | Check historical data availability, verify time window |
+| input_health very low | quality < 50% | Check historical data availability, verify time window |
 
 ---
 
@@ -530,7 +530,7 @@ docker-compose exec model-server /bin/bash
 | 3 | [WORKFLOW_STAGE3.md](WORKFLOW_STAGE3.md) | **Worker Init** — Config load, model registry sync |
 | 4 | [WORKFLOW_STAGE4.md](WORKFLOW_STAGE4.md) + [STAGE4_DATA_COLLECTION](WORKFLOW_STAGE4_DATA_COLLECTION.md) | **Data collection** — Historical, weather, CMMS |
 | 5 | [WORKFLOW_STAGE5.md](WORKFLOW_STAGE5.md) | **Inference** — Model init, prediction, timestamps |
-| 6 | [WORKFLOW_STAGE6.md](WORKFLOW_STAGE6.md) | **Post-processing** — Result building, QDS, adjustments |
+| 6 | [WORKFLOW_STAGE6.md](WORKFLOW_STAGE6.md) | **Post-processing** — Result building, input_health, adjustments |
 | 7 | [WORKFLOW_STAGE7.md](WORKFLOW_STAGE7.md) | **Polling** — Result retrieval, state transitions |
 | 8 | [WORKFLOW_STAGE8.md](WORKFLOW_STAGE8.md) | **Monitoring** — Task tracking, model metrics, UI endpoints |
 | 9 | [WORKFLOW_STAGE9.md](WORKFLOW_STAGE9.md) | **Error handling** — HTTP contracts, status codes, recovery |

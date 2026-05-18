@@ -194,6 +194,6 @@ make test-predict PREDICT_MODEL_ID=xgb
 - Следующий файл: `docs/workflow/WORKFLOW_STAGE6.md`
 - Что передаётся дальше:
   - `preds`, `pred_ts`, `is_matching`
-  - `timestamp`, `value`, `qds`
+  - `timestamp`, `value`, `health_flag`
   - `config.clip_negatives_to_0`
   - `planned_adjustments` (если есть)

@@ -9,7 +9,7 @@
 - опционально загрузить CMMS planned adjustments,
 - вернуть управляемую ошибку при недоступности обязательного источника historical data.
 
-Граница этапа: завершается, когда получены и проверены `timestamp`, `value`, `qds`, а также подготовлены опциональные `weather_data` и `planned_adjustments`.
+Граница этапа: завершается, когда получены и проверены `timestamp`, `value`, `health_flag`, а также подготовлены опциональные `weather_data` и `planned_adjustments`.
 
 Важно: на этом этапе используется только набор параметров `step` (мс), `input_range`, `output_range` из runtime-конфига. Отдельный параметр `mode` не используется.
 
@@ -89,7 +89,7 @@ return await get_historical_data_client().fetch_model_data(
 
 После HTTP-вызова historical client:
 
-- валидирует структуру `{archive_name: [[timestamp, value, qds], ...]}`,
+- валидирует структуру `{archive_name: [[timestamp, value], ...]}`,
 - преобразует series в numpy-массивы,
 - при `online == false` интерполирует пропуски,
 - возвращает `ModelData = (timestamps_list, values_list, qds_list)`.
@@ -211,18 +211,18 @@ curl -sS -X POST http://localhost:8030/predict \
 
 - [ ] Historical запрос сформирован из `step`, `input_range`, `output_range`.
 - [ ] `archives` и `step` присутствуют в payload historical client.
-- [ ] Исторические данные преобразованы в `timestamp/value/qds`.
+- [ ] Исторические данные преобразованы в `timestamp/value/health_flag`.
 - [ ] Пустой historical input отсекается через `model_launch_aborted_no_data`.
 - [ ] Weather загружен опционально и не блокирует этап при ошибке.
 - [ ] CMMS planned payload загружен опционально и не блокирует этап при ошибке.
-- [ ] Контекст (`timestamp`, `value`, `qds`, `weather_data`, `planned_adjustments`) готов для следующего этапа.
+- [ ] Контекст (`timestamp`, `value`, `health_flag`, `weather_data`, `planned_adjustments`) готов для следующего этапа.
 
 ## 7. Связь с соседними этапами
 
 - Предыдущий файл: `docs/workflow/WORKFLOW_STAGE3.md`
 - Следующий файл: `docs/workflow/WORKFLOW_STAGE5.md`
 - Что передаётся дальше:
-  - `timestamp`, `value`, `qds`
+  - `timestamp`, `value`, `health_flag`
   - `weather_data`
   - `planned_adjustments`
   - `step`, `input_range`, `output_range`

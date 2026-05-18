@@ -143,7 +143,7 @@ Any CMMS error is non-fatal for Stage4:
 
 Stage4 produces data for next stage:
 
-- `timestamp`, `value`, `qds` (required)
+- `timestamp`, `value`, `health_flag` (required)
 - `weather_data` (optional)
 - `planned_adjustments` (optional)
 
@@ -158,7 +158,7 @@ if not timestamp or not value or len(timestamp[0]) == 0:
 
 - [ ] `step`, `input_range`, `output_range` are taken from normalized `ModelConfig`
 - [ ] historical request built with `archives` and `step`
-- [ ] historical response converted to `timestamp/value/qds`
+- [ ] historical response converted to `timestamp/value/health_flag`
 - [ ] optional weather does not block stage on failures
 - [ ] optional CMMS does not block stage on failures
 - [ ] Stage4 output is ready for inference stage

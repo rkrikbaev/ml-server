@@ -58,7 +58,7 @@ environment:
   - MLFLOW_REGISTRY_URI=http://mlflow:5000
   - MLFLOW_DEFAULT_ALIAS=Production
   - MODEL_REGISTRY_CACHE_MAX=3
-  - MODEL_REGISTRY_CACHE_DIR=/tmp/mlserver_registry_cache
+  - MODEL_REGISTRY_CACHE_DIR=/tmp/local_models_cache
 ```
 
 ### 3. Runtime Modes
@@ -138,12 +138,12 @@ model-server:
   environment:
     - TEST_MODE=true
     - MLFLOW_TRACKING_URI=http://mlflow:5000
-    - MODEL_REGISTRY_CACHE_DIR=/tmp/mlserver_registry_cache
+    - MODEL_REGISTRY_CACHE_DIR=/tmp/local_models_cache
   volumes:
     - "../local/${MODEL:-models}:/workspace/models"
     - "./src:/workspace/server"
     - "../models:/workspace/lib"
-    - "model_registry_cache:/tmp/mlserver_registry_cache"
+    - "model_registry_cache:/tmp/local_models_cache"
   depends_on:
     - redis
     - mlflow
@@ -211,7 +211,7 @@ mlflow:
 
 **Role:**
 - Model registry (versions, aliases, metadata)
-- Artifact storage (model bundles downloaded to `/tmp/mlserver_registry_cache`)
+- Artifact storage (model bundles downloaded to `/tmp/local_models_cache`)
 - UI for browsing experiments (port 5050)
 
 **Data persistence:**
@@ -231,7 +231,7 @@ mlflow:
 | Volume | Purpose | Mount Point | Persistent |
 |--------|---------|-------------|---|
 | `redis_data` | Redis persistence | `/data` (in redis container) | ✅ Yes |
-| `model_registry_cache` | MLflow bundle cache | `/tmp/mlserver_registry_cache` | ✅ Yes |
+| `model_registry_cache` | MLflow bundle cache | `/tmp/local_models_cache` | ✅ Yes |
 | `mlflow_data` | MLflow metadata | `/mlflow` | ✅ Yes |
 
 ### Host Mounts (Bind Mounts)
@@ -264,7 +264,7 @@ mlflow:
 | `MLFLOW_REGISTRY_URI` | `http://mlflow:5000` | URL | MLflow registry |
 | `MLFLOW_DEFAULT_ALIAS` | `Production` | str | Default model alias |
 | `MODEL_REGISTRY_CACHE_MAX` | `3` | int | Max cached model bundles |
-| `MODEL_REGISTRY_CACHE_DIR` | `/tmp/mlserver_registry_cache` | path | Cache directory |
+| `MODEL_REGISTRY_CACHE_DIR` | `/tmp/local_models_cache` | path | Cache directory |
 | `MODELS_PATH` | `/workspace/models` | path | Models directory |
 
 ### External Services

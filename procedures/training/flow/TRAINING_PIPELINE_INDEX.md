@@ -1,10 +1,8 @@
-# Training Pipeline (Section 4.2) - Documentation Index
+# Training Pipeline - Documentation Index
 
 **Purpose:** Complete documentation for understanding the training pipeline  
 **Covers:** Section 4.2 from ТЗ_ML_Infrastructure.md  
 **Date:** April 19, 2026
-
-> Implementation note: `POST /train` is documented here as a target workflow, but is currently **not implemented** in the active codebase.
 
 ---
 
@@ -18,9 +16,8 @@
 
 **Contents:**
 - Overview of 6 core steps and pre
-- **Step 0**: Preparation (environment, readiness checks)
-- **Step 1**: Request reception (JSON parsing, validation)
-- **Step 2**: Data collection (DataLoader, external APIs, data passport)
+- **Step 1**: Preparation (environment, readiness checks, read configuration files)
+- **Step 2**: Data collection (DataLoader, external APIs)
 - **Step 3**: Preprocessing (cleaning, validation, feature engineering)
 - **Step 4**: Model training (Prophet & XGBoost implementations)
 - **Step 5**: MLflow logging (metadata, parameters, metrics, artifacts)
@@ -82,8 +79,7 @@
 **Best For:** Точечная проработка одного шага без чтения всего большого документа
 
 **Files:**
-- TRAINING_STAGE0_PREPARATION.md
-- TRAINING_STAGE1_REQUEST_RECEPTION.md
+- TRAINING_STAGE1_PREPARATION.md
 - TRAINING_STAGE2_DATA_COLLECTION.md
 - TRAINING_STAGE3_PREPROCESSING.md
 - TRAINING_STAGE4_MODEL_TRAINING.md
@@ -91,8 +87,7 @@
 - TRAINING_STAGE6_RETURN_RESULTS.md
 
 **Contents (by stage):**
-- **Stage 0**: Подготовка окружения, readiness-checks, pre-flight валидация
-- **Stage 1**: Контракт входного запроса `/train`, валидация, data passport
+- **Stage 1**: Подготовка окружения, readiness-checks, pre-flight валидация и контракт входного запроса `/train`
 - **Stage 2**: Сбор данных из источников, ошибки интеграций, выходной raw dataset
 - **Stage 3**: Очистка/валидация/подготовка данных к обучению
 - **Stage 4**: Обучение Prophet/XGBoost, выход model object
@@ -110,7 +105,7 @@
 
 **Contents:**
 - загрузка и профилирование исходного датасета;
-- pre-flight quality checks в стиле Stage 0 / Stage 3;
+- pre-flight quality checks в стиле Stage 1 / Stage 3;
 - baseline и candidate models в едином формате сравнения;
 - manual training блоки для Prophet и XGBoost;
 - шаблон добавления нового алгоритма;
@@ -128,7 +123,7 @@
 → See: TRAINING_PIPELINE_VISUAL_GUIDES.md → Section 4 (Data Transformation Flow)
 
 **"...what happens in each stage of training"**
-→ See: TRAINING_STAGE0_PREPARATION.md + TRAINING_STAGE1...6_*.md
+→ See: TRAINING_STAGE1_PREPARATION.md + TRAINING_STAGE2...6_*.md
 
 **"...what the Data Passport is"**
 → See: TRAINING_PIPELINE_DETAILED_EXPLANATION.md → Step 1 (Understanding Data Passport)
@@ -166,7 +161,7 @@
 
 ### For Technical Deep Dive (30 minutes)
 1. Read: TRAINING_PIPELINE_DETAILED_EXPLANATION.md → Overview
-2. Study: Stage 0 + Steps 1-6
+2. Study: Stage 1 + Steps 2-6
 3. Review: Error handling scenarios
 4. Look at: Practical example (AKMOLA)
 
@@ -179,7 +174,7 @@
 
 ### For Manual Analysis & Retraining (20-40 minutes)
 1. Run: TRAINING_MANUAL_WORKFLOW.ipynb
-2. Review: Stage 0 checks before fitting candidates
+2. Review: Stage 1 checks before fitting candidates
 3. Compare: Prophet / XGBoost / baseline metrics in one table
 4. Export: report bundle for review and publication decision
 
@@ -476,7 +471,7 @@ After reading these documents, you should understand:
 
 These documents provide complete coverage of Section 4.2 (Pipeline Steps):
 
-1. **TRAINING_STAGE0_PREPARATION.md**
+1. **TRAINING_STAGE1_PREPARATION.md**
     - Pre-flight preparation and readiness checks
     - Environment and source availability checks
     - Input consistency checks before launch
@@ -506,4 +501,4 @@ These documents provide complete coverage of Section 4.2 (Pipeline Steps):
 
 **Ready to dive in?**
 
-Start with: TRAINING_STAGE0_PREPARATION.md for readiness checks, then TRAINING_PIPELINE_VISUAL_GUIDES.md for overview, then TRAINING_PIPELINE_DETAILED_EXPLANATION.md for full depth.
+Start with: TRAINING_STAGE1_PREPARATION.md for readiness checks, then TRAINING_PIPELINE_VISUAL_GUIDES.md for overview, then TRAINING_PIPELINE_DETAILED_EXPLANATION.md for full depth.

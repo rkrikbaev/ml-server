@@ -122,7 +122,7 @@ model-server:
     - PYTHONUNBUFFERED=1
     - TEST_MODE=true
     - MLFLOW_TRACKING_URI=http://mlflow:5000
-    - MODEL_REGISTRY_CACHE_DIR=/tmp/mlserver_registry_cache
+    - MODEL_REGISTRY_CACHE_DIR=/tmp/local_models_cache
 ```
 
 **Startup sequence in container:**
@@ -163,7 +163,7 @@ mlflow:
 
 **Role:**
 - Model registry: stores model versions and aliases (e.g., "Production")
-- Artifact storage: bundles (config.json, model files) cached to `/tmp/mlserver_registry_cache`
+- Artifact storage: bundles (config.json, model files) cached to `/tmp/local_models_cache`
 - Accessed by Stage 3 during worker initialization
 
 ---
@@ -194,7 +194,7 @@ Application ready for requests
 
 ### Model Registry Cache
 
-**Path:** `/tmp/mlserver_registry_cache` (mounted as Docker volume `model_registry_cache`)
+**Path:** `/tmp/local_models_cache` (mounted as Docker volume `model_registry_cache`)
 
 **Purpose:**
 - Cache MLflow model bundles (config.json, adapters, fallback models)
@@ -204,7 +204,7 @@ Application ready for requests
 **Environment:**
 ```python
 MODEL_REGISTRY_CACHE_MAX = 3                        # Max cached models
-MODEL_REGISTRY_CACHE_DIR = "/tmp/mlserver_registry_cache"
+MODEL_REGISTRY_CACHE_DIR = "/tmp/local_models_cache"
 ```
 
 ### Models Directory

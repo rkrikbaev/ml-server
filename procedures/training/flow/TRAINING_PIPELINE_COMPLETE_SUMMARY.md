@@ -12,8 +12,7 @@
 ## What Was Created
 
 ### Stage-by-Stage Set (current canonical breakdown)
-- TRAINING_STAGE0_PREPARATION.md
-- TRAINING_STAGE1_REQUEST_RECEPTION.md
+- TRAINING_STAGE1_PREPARATION.md
 - TRAINING_STAGE2_DATA_COLLECTION.md
 - TRAINING_STAGE3_PREPROCESSING.md
 - TRAINING_STAGE4_MODEL_TRAINING.md
@@ -80,9 +79,9 @@ Navigation and reference guide
 
 ---
 
-## Stage 0 + 6-Step Pipeline Explained
+## Stage 1 + 5-Step Pipeline Explained
 
-### Stage 0: Preparation
+### Stage 1: Preparation + Request Validation
 ```
 Input: Environment and configuration readiness checks
 
@@ -93,24 +92,6 @@ Process:
 └─ Validate train_params ranges
 
 Output: readiness=true/false before launching training
-```
-
-### Step 1: Request Reception
-```
-Input: POST /train
-{
-  "object_reference": "/KAZ/AKMOLA/...",
-  "model_type": "prophet",
-  "data_source_config": {...},  ← "Data Passport"
-  "train_params": {...}
-}
-
-Process:
-├─ Parse JSON
-├─ Validate schema
-└─ Extract parameters
-
-Output: Validated parameters ready for next steps
 ```
 
 ### Step 2: Data Collection
@@ -421,8 +402,7 @@ ml-server/docs/training/
 ├── TRAINING_PIPELINE_DETAILED_EXPLANATION.md
 ├── TRAINING_PIPELINE_VISUAL_GUIDES.md
 ├── TRAINING_PIPELINE_COMPLETE_SUMMARY.md
-├── TRAINING_STAGE0_PREPARATION.md
-├── TRAINING_STAGE1_REQUEST_RECEPTION.md
+├── TRAINING_STAGE1_PREPARATION.md
 ├── TRAINING_STAGE2_DATA_COLLECTION.md
 ├── TRAINING_STAGE3_PREPROCESSING.md
 ├── TRAINING_STAGE4_MODEL_TRAINING.md

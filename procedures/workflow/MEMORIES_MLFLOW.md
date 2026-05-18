@@ -8,7 +8,7 @@ Artifact Store: `mlruns/` — хранит bundle-артефакты модел�
 Offline prediction работает так:
 - клиент передаёт `model_id` и опционально `model_selection.version_alias` или `model_selection.version`;
 - runtime разрешает selector в MLflow Registry;
-- скачивает `bundle` и кеширует его в `/tmp/mlserver_registry_cache`;
+- скачивает `bundle` и кеширует его в `/tmp/local_models_cache`;
 - читает runtime-конфиг из `bundle/configuration/cache_config.json`;
 - читает модель из `bundle/model`.
 

@@ -32,7 +32,7 @@
 | Компонент | Назначение | Местоположение |
 |-----------|-----------|-------------------|
 | **Конфигурация окружения** | Переменные среды для тестов | `.env.test` |
-| **Runtime-конфигурация модели** | Активный `cache_config.json` в MLflow bundle cache | `/tmp/mlserver_registry_cache/.../bundle/configuration/cache_config.json` |
+| **Runtime-конфигурация модели** | Активный `cache_config.json` в MLflow bundle cache | `/tmp/local_models_cache/.../bundle/configuration/cache_config.json` |
 | **Скрипт инициализации** | Python скрипт настройки | `scripts/setup_test_model.py` |
 | **Скрипт окружения** | Bash скрипт для полной настройки | `scripts/setup_test_env.sh` |
 | **Синтетические данные** | Тестовые данные для обучения | `tests/fixtures/test_data/` |
@@ -157,7 +157,7 @@ load_dotenv('.env.test')
 Текущий offline runtime читает конфигурацию инференса из MLflow serving bundle:
 
 ```text
-/tmp/mlserver_registry_cache/.../bundle/configuration/cache_config.json
+/tmp/local_models_cache/.../bundle/configuration/cache_config.json
 ```
 
 Для online flow (`model_id == "none"`) registry bundle не требуется.

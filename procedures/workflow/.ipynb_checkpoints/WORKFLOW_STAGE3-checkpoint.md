@@ -72,7 +72,7 @@ sync_result = get_model_provider().sync_with_registry(model_id, selector)
 - определяет selector (`version_alias` или `version`, по умолчанию `Production`),
 - разрешает `run_id` в MLflow Registry,
 - скачивает artifact `bundle`,
-- кеширует его в `/tmp/mlserver_registry_cache`,
+- кеширует его в `/tmp/local_models_cache`,
 - возвращает `bundle_path`, `model_path`, `config_path`, `run_id`.
 
 Если registry недоступен:
@@ -210,7 +210,7 @@ output_range = config.output_range
 Файл модели хранится в cached MLflow bundle рядом с runtime configuration:
 
 ```
-/tmp/mlserver_registry_cache/<model>/<selector>/<run_id>/bundle/
+/tmp/local_models_cache/<model>/<selector>/<version>/bundle/
 ├── model/
 │   ├── prophet_model.json   # для model_type = "prophet"
 │   └── xgb_model.json       # для model_type = "xgb"

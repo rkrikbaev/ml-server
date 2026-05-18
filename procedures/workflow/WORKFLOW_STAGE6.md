@@ -5,7 +5,7 @@
 Сформировать финальный payload задачи после инференса:
 
 - применить planned корректировки CMMS к прогнозу,
-- оценить качество входных данных (QDS),
+- оценить качество входных данных (input_health),
 - собрать финальный объект `data.output` и статистику,
 - вернуть `DONE`-payload с финальными `message/quality` и статистикой.
 
@@ -16,8 +16,8 @@
 - `src/api/broker/tasks/predict.py` -> `_get_planned_adjustments(...)`
 - `src/api/broker/tasks/predict.py` -> `_apply_planned_adjustments(...)`
 - `src/api/broker/tasks/predict.py` -> `_build_result(...)`
-- `src/api/forecast/evaluation.py` -> `count_input_qds(...)`
-- `src/api/forecast/evaluation.py` -> `evaluate_input_quality(...)`
+- `src/api/forecast/evaluation.py` -> `count_input_health(...)`
+- `src/api/forecast/evaluation.py` -> `evaluate_input_health(...)`
 
 ## 3. Пошаговая логика на уровне кода
 
@@ -48,8 +48,8 @@ preds, planned_applied_count = _apply_planned_adjustments(preds, pred_ts, planne
 ### Шаг 3. Оценка качества входных данных
 
 ```python
-critical_freq, non_critical_freq = count_input_qds(timestamp, value, qds)
-input_qds, input_reason = evaluate_input_quality(critical_freq, non_critical_freq)
+critical_freq, non_critical_freq = count_input_health(timestamp, value, health_flag)
+input_qds, input_reason = evaluate_input_health(critical_freq, non_critical_freq)
 ```
 
 Результат:
@@ -71,7 +71,7 @@ return HTTPMessages.ok_done(
 
 - рассчитывается внутренний `status/message` по правилам качества,
 - при `clip_negatives_to_0=True` отрицательные значения `preds` обрезаются до `0`,
-- собирается `output` в формате `[[timestamp, value, qds], ...]`,
+- собирается `output` в формате `[[timestamp, value], ...]`,
 - добавляются `input_statistics`, `output_statistics`, `planned_adjustments_applied`.
 
 Важно: успешный путь Stage6 всегда оборачивается в `HTTPMessages.ok_done(...)`, то есть HTTP-статус ответа задачи = `200`.
@@ -81,7 +81,7 @@ return HTTPMessages.ok_done(
 
 Порядок приоритета в `_build_result(...)`:
 
-1. Базовый статус = `200`, качество = `QDS.BASE`.
+1. Базовый статус = `200`, качество = `input_health.BASE`.
 2. Если `model is None` -> `422`.
 3. Если `is_matching == False` и пока `200` -> `422`.
 4. Если `status` еще `200` и `input_qds != BASE` -> статус становится `input_qds`.
@@ -106,7 +106,7 @@ return HTTPMessages.ok_done(
 
 ### 5.3 Низкое качество входа
 
-- Источник: частота критичных/некритичных QDS выше порогов
+- Источник: частота критичных/некритичных input_health выше порогов
 - Результат: финальный `quality` повышается до `NOT_TOPICAL` или `INVALID`, а `message` заполняется причиной.
 
 ## 6. Как проверить этап
@@ -146,7 +146,7 @@ make test-predict PREDICT_MODEL_ID=xgb
 
 - [ ] Planned-корректировки запрошены и обработаны без фатального влияния на pipeline.
 - [ ] Применение planned adjustments выполняется по timestamp в мс.
-- [ ] QDS входа посчитан через `count_input_qds` и `evaluate_input_quality`.
+- [ ] input_health входа посчитан через `count_input_health` и `evaluate_input_health`.
 - [ ] Финальный `quality` и `status` сформированы по правилам `_build_result`.
 - [ ] Итоговый payload содержит `output`, статистику входа/выхода и счетчик applied planned points.
 

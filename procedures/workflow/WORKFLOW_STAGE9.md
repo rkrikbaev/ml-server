@@ -211,7 +211,7 @@ Content-Type: application/json
 
 [`src/api/message.py:111`](src/api/message.py#L111):
 
-**Triggered in Stage 4/6 when** QDS (input quality score) falls below threshold:
+**Triggered in Stage 4/6 when** input_health (input quality score) falls below threshold:
 
 ```json
 {
@@ -359,7 +359,7 @@ Stage 5 (Inference)
   └─→ ✓ Continue to Stage 6 with predictions
 
 Stage 6 (Post-processing)
-  ├─→ QDS too low → 422 (data quality) or 200 with quality flag
+  ├─→ input_health too low → 422 (data quality) or 200 with quality flag
   ├─→ Exception in apply_planned_adjustments → 422 (forecast error)
   └─→ ✓ HTTP 200 DONE, return result
 

@@ -51,28 +51,28 @@ ml-server/
 
 ```python
 # tests/test_features.py (simplified)
-def test_count_input_qds():
-    """Test QDS calculation"""
+def test_count_input_health():
+    """Test input_health calculation"""
     data = [1.0, 2.0, 3.0, np.nan, 5.0]  # 4/5 valid = 80%
-    qds = count_input_qds(data)
-    assert qds == 80
+    health_flag = count_input_health(data)
+    assert health_flag == 80
 
-def test_count_input_qds_empty():
-    """Test QDS with all NaN"""
+def test_count_input_health_empty():
+    """Test input_health with all NaN"""
     data = [np.nan, np.nan, np.nan]
-    qds = count_input_qds(data)
-    assert qds == 0
+    health_flag = count_input_health(data)
+    assert health_flag == 0
 
-def test_count_input_qds_all_valid():
-    """Test QDS with no missing values"""
+def test_count_input_health_all_valid():
+    """Test input_health with no missing values"""
     data = [1.0, 2.0, 3.0, 4.0, 5.0]
-    qds = count_input_qds(data)
-    assert qds == 100
+    health_flag = count_input_health(data)
+    assert health_flag == 100
 ```
 
 **Run:**
 ```bash
-pytest tests/test_features.py::test_count_input_qds -v
+pytest tests/test_features.py::test_count_input_health -v
 ```
 
 ### Level 2: Integration Tests (Stage-to-Stage Handoff)
@@ -211,7 +211,7 @@ def test_predict_no_data():
         )
         
         if response_poll.status_code == 422:
-            # Stage 4 failed (or 6 failed QDS check)
+            # Stage 4 failed (or 6 failed input_health check)
             assert "no input data" in response_poll.json()["message"].lower()
             return  # ✅ Correct error
         
@@ -412,7 +412,7 @@ curl "http://localhost:8030/ui/model-config?model_id=prophet_watt_AKMOLA"
 # Expected: HTTP 200 + raw_config + normalized_config
 
 # Cache exists
-ls -la /tmp/mlserver_registry_cache/
+ls -la /tmp/local_models_cache/
 # Should contain model bundle directories
 ```
 
@@ -421,7 +421,7 @@ ls -la /tmp/mlserver_registry_cache/
 - [ ] Historical data fetched (or stub provided)
 - [ ] Weather data optional (skip if unavailable)
 - [ ] CMMS data optional (skip if unavailable)
-- [ ] QDS calculated
+- [ ] input_health calculated
 
 **Verify:**
 ```bash
@@ -446,7 +446,7 @@ make test-predict PREDICT_MODEL_ID=prophet_watt_AKMOLA
 ### Stage 6 (Post-Processing)
 
 - [ ] CMMS adjustments applied (if available)
-- [ ] QDS threshold checked
+- [ ] input_health threshold checked
 - [ ] Result payload built correctly
 - [ ] HTTP status determined
 
@@ -539,7 +539,7 @@ docker-compose exec model-server python -c \
 docker-compose exec model-server ls /workspace/models
 
 # Check cache
-docker-compose exec model-server ls /tmp/mlserver_registry_cache
+docker-compose exec model-server ls /tmp/local_models_cache
 ```
 
 ### End-to-End Flow
