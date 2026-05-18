@@ -18,7 +18,6 @@ services:
       - "${PORT:-8030}:8030"
     environment:
       - PYTHONUNBUFFERED=1
-      - PYTHONPATH=/workspace/server:/workspace/lib
       - TEST_MODE=true
       - SCADA_STUB_ENABLED=${SCADA_STUB_ENABLED:-false}
       - HISTORICAL_DATA_STUB_ENABLED=${HISTORICAL_DATA_STUB_ENABLED:-false}
@@ -26,13 +25,10 @@ services:
       - MLFLOW_REGISTRY_URI=http://mlflow:5000
       - MLFLOW_DEFAULT_ALIAS=Production
       - MODEL_REGISTRY_CACHE_MAX=3
-      - MODEL_REGISTRY_CACHE_DIR=/tmp/mlserver_registry_cache
+      - MODEL_REGISTRY_CACHE_DIR=/tmp/local_models_cache
     volumes:
-      - "../local/${MODEL:-models}:/workspace/models"
       - "./src:/workspace/server"
-      - "../models:/workspace/lib"
-      - "../local/mlruns:/mlflow/mlruns:ro"
-      - "model_registry_cache:/tmp/mlserver_registry_cache"
+      - "model_registry_cache:/tmp/local_models_cache"
     depends_on:
       - redis
       - mlflow

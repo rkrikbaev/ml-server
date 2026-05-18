@@ -8,7 +8,7 @@ TRAIN_MODEL_ID ?= /xgb
 TRAIN_LOOKBACK_DAYS ?= 30
 PREDICT_MODEL_ID ?= root_FP_PROJECT_AKMOLA_VostVet_VES_models_P_watt
 PREDICT_MODEL_RUN_ID ?= 3ec5decd466b40aea7623e46ed690e43
-PREDICT_OBJECT_REFERENCE ?= /root/FP/PROJECT/AKMOLA/@regions/KOKSHETAU/Load/P_load/archives/out_value
+PREDICT_OBJECT_REF ?= /root/FP/PROJECT/AKMOLA/@regions/KOKSHETAU/Load/P_load/archives/out_value
 PREDICT_CONFIG_FILE ?= $(PREDICT_MODELS_DIR)/$(PREDICT_MODEL_ID)/$(PREDICT_MODEL_RUN_ID)/bundle/configuration/cache_config.json
 PREDICT_MAX_ATTEMPTS ?= 30
 PREDICT_POLL_INTERVAL ?= 1
@@ -26,7 +26,7 @@ help:
 	@echo "  make smoke-api       - Check /ui/runtime-status on mapped model service port"
 	@echo "  make mlflow-ui       - Start MLflow UI"
 	@echo "  make test-predict    - Test 2-step async /predict flow"
-	@echo "                         vars: PREDICT_URL, PREDICT_MODELS_DIR, PREDICT_MODEL_ID, PREDICT_OBJECT_REFERENCE"
+	@echo "                         vars: PREDICT_URL, PREDICT_MODELS_DIR, PREDICT_MODEL_ID, PREDICT_OBJECT_REF"
 	@echo "                               PREDICT_CONFIG_FILE (optional; defaults to cache_config.json)"
 	@echo "                         example: make test-predict PREDICT_MODEL_ID=/xgb"
 	@echo "  make logs            - Show recent logs"
@@ -82,7 +82,7 @@ wait-api:
 	echo "✓ API is ready"
 
 test-predict:
-	@echo "🔍 Testing 2-step /predict flow..."
+	@echo "🔍 Testing 2-step /predict flow (GET)..."
 	@api_url="$(PREDICT_URL)"; \
 	model_id="$(PREDICT_MODEL_ID)"; \
 	model_dir="$(PREDICT_MODELS_DIR)/$$model_id"; \
@@ -94,29 +94,29 @@ test-predict:
 		echo "cache_config.json not found. Checked explicit path: $(PREDICT_CONFIG_FILE) and MLflow tree under $(PREDICT_MODELS_DIR)"; \
 		exit 1; \
 	fi; \
-	object_reference="$(PREDICT_OBJECT_REFERENCE)"; \
+	object_ref="$(PREDICT_OBJECT_REF)"; \
 	if [ "$${SCADA_STUB_ENABLED:-true}" = "false" ]; then \
-		object_reference=$$(/Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); a=d.get("archives") or []; print(a[0] if a else "")' "$$cache_config_file" 2>/dev/null || true); \
-		if [ -z "$$object_reference" ]; then \
+		object_ref=$$(/Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); a=d.get("archives") or []; print(a[0] if a else "")' "$$cache_config_file" 2>/dev/null || true); \
+		if [ -z "$$object_ref" ]; then \
 			echo "Could not read archives[0] from $$cache_config_file"; \
 			exit 1; \
 		fi; \
-		echo "Using object_reference from cache_config ($$cache_config_file): $$object_reference"; \
+		echo "Using object_ref from cache_config ($$cache_config_file): $$object_ref"; \
 	fi; \
-	payload="{\"object_reference\": \"$$object_reference\", \"model_id\": \"$$model_id\"}"; \
-	echo "[1/2] Starting predict task..."; \
-	start_resp=$$(curl -sS -X POST "$$api_url" -H "Content-Type: application/json" -d "$$payload"); \
+	echo "[1/2] Starting predict task (GET)..."; \
+	start_resp=$$(curl -sS -G "$$api_url/$$model_id" --data-urlencode "object_ref=$$object_ref" --data-urlencode "version_alias=Production"); \
 	task_id=$$(echo "$$start_resp" | /Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -c 'import json,sys; print(json.load(sys.stdin).get("task_id", ""))' 2>/dev/null || true); \
 	if [ -z "$$task_id" ]; then \
 		echo "Failed to get task_id from start response:"; \
 		echo "$$start_resp"; \
 		exit 1; \
 	fi; \
+	task_url="$${api_url%/predict}/tasks/$$task_id"; \
 	echo "Task created: $$task_id"; \
 	echo "[2/2] Polling task result..."; \
 	attempt=0; \
 	while [ $$attempt -lt $(PREDICT_MAX_ATTEMPTS) ]; do \
-		poll_resp=$$(curl -sS -X POST "$$api_url" -H "Content-Type: application/json" -d "{\"task_id\": \"$$task_id\"}"); \
+		poll_resp=$$(curl -sS "$$task_url"); \
 		status=$$(echo "$$poll_resp" | /Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -c 'import json,sys; print(json.load(sys.stdin).get("status", ""))' 2>/dev/null || true); \
 		state=$$(echo "$$poll_resp" | /Users/rustamkrikbayev/Documents/projects/forecast/.venv/bin/python -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))' 2>/dev/null || true); \
 		if [ "$$status" = "200" ]; then \
