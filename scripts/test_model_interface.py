@@ -8,10 +8,13 @@ import json
 from pathlib import Path
 import sys
 
-# Добавить пути для импорта
-sys.path.insert(0, '/workspace/server')
+# Добавить путь до локальной директории src
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
-from api.forecast.base_interface import PredictionInput, PredictionOutput, BaseModel
+from adapters.base_interface import PredictionInput, PredictionOutput, BaseModel
 
 
 def test_prediction_input_serialization():

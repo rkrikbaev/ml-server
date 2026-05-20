@@ -703,14 +703,16 @@ def main() -> None:
     raw = payload[first_key]
     timestamps = np.array([r[0] for r in raw], dtype=np.int64)
     values = np.array([r[1] for r in raw], dtype=np.float64)
-    qds    = np.array([0 if r[2] is None else int(r[2]) for r in raw], dtype=np.int32)
-
-    valid_mask = np.isin(qds, [0, QDS_BASE := 0], invert=False) | (qds < 64)
-    n_invalid = int((qds >= 64).sum())
+    valid_mask = np.isfinite(values)
+    n_invalid = int((~valid_mask).sum())
     logger.info(
-        "Series: %d points, min=%.2f, max=%.2f, mean=%.2f, invalid QDS: %d",
+        "Series: %d points, min=%.2f, max=%.2f, mean=%.2f, invalid values: %d",
         len(values), values.min(), values.max(), values.mean(), n_invalid,
     )
+
+    if n_invalid:
+        timestamps = timestamps[valid_mask]
+        values = values[valid_mask]
 
     if args.dry_run:
         logger.info("--dry-run: stopping before training")
