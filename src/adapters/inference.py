@@ -7,8 +7,8 @@ Deprecated: fpforecast module. Using base_interface + adapters pattern.
 from typing import List, Tuple, Any, Optional, Dict
 from copy import copy
 
-from api.forecast.base_interface import BaseModel, PredictionInput, PredictionOutput
-from api.forecast.adapters import ARAdapter, ProphetAdapter
+from adapters.base_interface import BaseModel, PredictionInput, PredictionOutput
+from adapters.adapters import ARAdapter, ProphetAdapter
 
 from api.utils import get_pred_timestamps
 from .date import get_full_days_mask, get_weekday
@@ -91,7 +91,7 @@ def predict(
     :param Optional[pd.DataFrame] df_rz_melt: Optional RZ data for merging.
     :param Optional[Dict[str, Any]] weather_data: Optional weather payload.
 
-    :return: 3 parameters: forecast, timestamps, and quality flag
+    :return: 3 parameters: forecast, timestamps, and distribution-match flag
     :rtype: Tuple[np.ndarray, np.ndarray, bool]
     """
 

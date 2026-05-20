@@ -1,5 +1,3 @@
-# Mariya Polkovnikova
-# 2026.03.17, 11:14 AM
 
 
 from typing import Dict, Any, Optional
@@ -10,11 +8,8 @@ import logging
 
 from api import HTTPStatuses, HTTPMessages
 from api.collector import get_cmms_client, get_historical_data_client, get_weather_client
-from api.forecast import (
-    QDS,
+from adapters import (
     init_model,
-    count_input_qds,
-    evaluate_input_quality,
     predict,
     load_model_config,
     get_model_provider,
@@ -31,11 +26,9 @@ def _safe_float(value: Any) -> Optional[float]:
 def _build_input_statistics(
     timestamps: Any,
     values: Any,
-    qds: Any,
 ) -> Dict[str, Any]:
     flat_timestamps = np.concatenate([np.asarray(series, dtype=np.int64) for series in timestamps])
     flat_values = np.concatenate([np.asarray(series, dtype=float) for series in values])
-    flat_qds = np.concatenate([np.asarray(series, dtype=np.int64) for series in qds])
     valid_values = flat_values[~np.isnan(flat_values)]
 
     return {
@@ -48,11 +41,6 @@ def _build_input_statistics(
         "max": _safe_float(valid_values.max()) if valid_values.size else None,
         "mean": _safe_float(valid_values.mean()) if valid_values.size else None,
         "std": _safe_float(valid_values.std()) if valid_values.size else None,
-        "qds": {
-            "min": int(flat_qds.min()) if flat_qds.size else None,
-            "max": int(flat_qds.max()) if flat_qds.size else None,
-            "invalid_count": int(np.sum(flat_qds != QDS.BASE)) if flat_qds.size else 0,
-        },
     }
 
 
@@ -74,6 +62,30 @@ def _build_output_statistics(
         "mean": _safe_float(valid_preds.mean()) if valid_preds.size else None,
         "std": _safe_float(valid_preds.std()) if valid_preds.size else None,
     }
+
+
+def _compute_model_confidence(
+    preds: Any,
+    is_matching: bool,
+    model: Any,
+) -> float:
+    """Compute confidence in [0, 1] from model state and prediction completeness."""
+    preds_arr = np.asarray(preds, dtype=float)
+    if preds_arr.size == 0:
+        return 0.0
+
+    valid_ratio = float(np.isfinite(preds_arr).mean())
+    confidence = 1.0
+
+    if model is None:
+        confidence -= 0.35
+
+    if not is_matching:
+        confidence -= 0.30
+
+    confidence -= (1.0 - valid_ratio) * 0.50
+
+    return round(float(np.clip(confidence, 0.0, 1.0)), 4)
 
 
 async def _get_weather_payload(
@@ -116,58 +128,58 @@ async def _get_historical_data_payload(
     )
 
 
-async def _get_planned_adjustments(
-    config: Any,
-    step_ms: int,
-    output_range: int,
-) -> Optional[Dict[int, float]]:
-    """Fetch CMMS planned adjustments as {timestamp_ms: reduction_value}."""
-    if not config.cmms_url:
-        return None
+# async def _get_planned_adjustments(
+#     config: Any,
+#     step_ms: int,
+#     output_range: int,
+# ) -> Optional[Dict[int, float]]:
+#     """Fetch CMMS planned adjustments as {timestamp_ms: reduction_value}."""
+#     if not config.cmms_url:
+#         return None
 
-    try:
-        payload = await get_cmms_client().fetch_planned_series(
-            step_ms=step_ms,
-            output_range=output_range,
-            cmms_url=config.cmms_url,
-            request_overrides=config.cmms_request_overrides,
-        )
-    except Exception as error:
-        logger.warning("CMMS planned-data fetch failed for model_id source=%s: %s", config.cmms_url, error)
-        return None
+#     try:
+#         payload = await get_cmms_client().fetch_planned_series(
+#             step_ms=step_ms,
+#             output_range=output_range,
+#             cmms_url=config.cmms_url,
+#             request_overrides=config.cmms_request_overrides,
+#         )
+#     except Exception as error:
+#         logger.warning("CMMS planned-data fetch failed for model_id source=%s: %s", config.cmms_url, error)
+#         return None
 
-    if isinstance(payload, dict):
-        if payload.get("status", 0) >= 400:
-            logger.warning("CMMS planned-data source unavailable: %s", payload)
-            return None
-        if payload:
-            logger.info("CMMS planned-data loaded from %s points=%s", config.cmms_url, len(payload))
-            return payload
+#     if isinstance(payload, dict):
+#         if payload.get("status", 0) >= 400:
+#             logger.warning("CMMS planned-data source unavailable: %s", payload)
+#             return None
+#         if payload:
+#             logger.info("CMMS planned-data loaded from %s points=%s", config.cmms_url, len(payload))
+#             return payload
 
-    return None
+#     return None
 
 
-def _apply_planned_adjustments(
-    preds: Any,
-    pred_ts: Any,
-    planned_adjustments: Optional[Dict[int, float]],
-) -> tuple[Any, int]:
-    """Apply planned reductions to forecast values by exact timestamp match."""
-    if not planned_adjustments:
-        return preds, 0
+# def _apply_planned_adjustments(
+#     preds: Any,
+#     pred_ts: Any,
+#     planned_adjustments: Optional[Dict[int, float]],
+# ) -> tuple[Any, int]:
+#     """Apply planned reductions to forecast values by exact timestamp match."""
+#     if not planned_adjustments:
+#         return preds, 0
 
-    adjusted = np.array(preds, copy=True, dtype=float)
-    applied = 0
+#     adjusted = np.array(preds, copy=True, dtype=float)
+#     applied = 0
 
-    for idx, ts in enumerate(pred_ts):
-        reduction = planned_adjustments.get(int(ts))
-        if reduction is None:
-            continue
+#     for idx, ts in enumerate(pred_ts):
+#         reduction = planned_adjustments.get(int(ts))
+#         if reduction is None:
+#             continue
 
-        adjusted[idx] = adjusted[idx] - float(reduction)
-        applied += 1
+#         adjusted[idx] = adjusted[idx] - float(reduction)
+#         applied += 1
 
-    return adjusted, applied
+#     return adjusted, applied
 
 
 async def logic(
@@ -216,7 +228,7 @@ async def logic(
         if isinstance(output, dict):
             return output
 
-        timestamp, value, qds = output[0], output[1], output[2]
+        timestamp, value = output[0], output[1]
         del output
 
         # Guard: abort if NDC returned no data
@@ -260,32 +272,30 @@ async def logic(
             return HTTPMessages.unprocessable_entity_forecast(str(e))
 
         # --- CMMS planned postprocessing ---
-        planned_adjustments = await _get_planned_adjustments(config, step, output_range)
-        preds, planned_applied_count = _apply_planned_adjustments(preds, pred_ts, planned_adjustments)
-        if planned_applied_count:
-            logger.info(
-                "Applied CMMS planned reductions for model_id=%s points=%s",
-                model_id,
-                planned_applied_count,
-            )
+        # planned_adjustments = await _get_planned_adjustments(config, step, output_range)
+        # preds, planned_applied_count = _apply_planned_adjustments(preds, pred_ts, planned_adjustments)
+        # if planned_applied_count:
+        #     logger.info(
+        #         "Applied CMMS planned reductions for model_id=%s points=%s",
+        #         model_id,
+        #         planned_applied_count,
+        #     )
 
-        # --- QDS assessment ---
-        critical_freq, non_critical_freq = count_input_qds(timestamp, value, qds)
-        input_qds, input_reason = evaluate_input_quality(critical_freq, non_critical_freq)
+        mlflow_model_name = sync_result.model_id if model_id != "none" else None
+        mlflow_model_version = sync_result.model_version if model_id != "none" else None
 
         return HTTPMessages.ok_done(
             _build_result(
                 model,
                 is_matching,
-                input_qds,
-                input_reason,
                 config.clip_negatives_to_0,
                 timestamp,
                 value,
-                qds,
                 preds,
                 pred_ts,
-                planned_applied_count,
+                # planned_applied_count,
+                mlflow_model_name,
+                mlflow_model_version,
             )
         )
 
@@ -296,23 +306,20 @@ async def logic(
 def _build_result(
     model: Any,
     is_matching: bool,
-    input_qds: int,
-    input_reason: str,
     clip_negatives_to_0: bool,
     timestamps: Any,
     values: Any,
-    qds: Any,
     preds: Any,
     pred_ts: Any,
-    planned_applied_count: int,
+    # planned_applied_count: int,
+    mlflow_model_name: Optional[str] = None,
+    mlflow_model_version: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build the final forecast result payload.
 
     :param Any model: Initialized model instance (or None if loading failed).
     :param bool is_matching: Whether input data matches the training distribution.
-    :param int input_qds: QDS score for the input data.
-    :param str input_reason: Human-readable reason for the input QDS.
     :param bool clip_negatives_to_0: Whether to floor predictions at 0.
     :param Any preds: Raw predictions array.
     :param Any pred_ts: Prediction timestamps array.
@@ -321,40 +328,35 @@ def _build_result(
     :rtype: Dict[str, Any]
     """
 
-    base_pred_qds = QDS.BASE
-    status = HTTPStatuses.SC200
-    reason = ""
+    message = ""
 
     if model is None:
-        base_pred_qds = QDS.INVALID
-        status = HTTPStatuses.SC422
-        reason = f"Model loading error, using online model (QDS={base_pred_qds})"
+        message = "Model loading warning: fallback inference path was used."
 
-    if not is_matching and status == HTTPStatuses.SC200:
-        base_pred_qds = max(base_pred_qds, QDS.NOT_TOPICAL)
-        status = HTTPStatuses.SC422
-        reason = f"Input data does not match training distribution (QDS={base_pred_qds})"
-
-    if status == HTTPStatuses.SC200 and input_qds:
-        status = input_qds
-        reason = input_reason
-
-    final_qds = max(base_pred_qds, input_qds)
+    if not is_matching and not message:
+        message = "Input data does not match training distribution."
 
     if clip_negatives_to_0:
         preds = maximum(preds, 0)
 
     output = [
-        [int(ts), None if isnan(p) else round(float(p), 1), int(final_qds)]
+        [int(ts), None if isnan(p) else round(float(p), 1), None]
         for ts, p in zip(pred_ts, preds)
     ]
 
-    return {
-        "message": "" if status == HTTPStatuses.SC200 else reason,
+    result: Dict[str, Any] = {
+        "message": message,
         "output": output,
-        "quality": final_qds,
-        "model_confidence": 1.0,
-        "planned_adjustments_applied": planned_applied_count,
-        "input_statistics": _build_input_statistics(timestamps, values, qds),
+        "model_confidence": _compute_model_confidence(preds, is_matching, model),
+        # "planned_adjustments_applied": planned_applied_count,
+        "input_statistics": _build_input_statistics(timestamps, values),
         "output_statistics": _build_output_statistics(pred_ts, preds),
     }
+
+    if mlflow_model_name is not None:
+        result["mlflow"] = {
+            "name": mlflow_model_name,
+            "version": mlflow_model_version,
+        }
+
+    return result

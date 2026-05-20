@@ -6,8 +6,8 @@ from threading import RLock
 from prophet import Prophet
 from pathlib import Path
 
-from api.forecast.base_interface import BaseModel
-from api.forecast.adapters import ARAdapter, NaiveAdapter, ProphetAdapter, XGBoostAdapter
+from adapters.base_interface import BaseModel
+from adapters.adapters import ARAdapter, NaiveAdapter, ProphetAdapter, XGBoostAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +259,10 @@ def init_model(
                 elif model_type == "prophet":
                     logger.info(f"Loading Prophet model from {model_dirpath}")
                     model_filepath = model_dirpath / "prophet_model.json"
+                    if not model_filepath.is_file():
+                        legacy_model_filepath = model_dirpath / "model.prophet.json"
+                        if legacy_model_filepath.is_file():
+                            model_filepath = legacy_model_filepath
                     
                     if not model_filepath.is_file():
                         fallback_model = _build_fallback_model(fallback)

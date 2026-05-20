@@ -128,14 +128,14 @@ def _display_state(task: dict[str, Any], now: datetime | None = None) -> str:
     return f"done {status_code}" if status_code else "done"
 
 
-def _make_task(task_id: str, client_object_ref: str, model_id: str) -> dict[str, Any]:
+def _make_task(task_id: str, object_ref: str | None, model_id: str) -> dict[str, Any]:
     now = _utc_now()
     return {
         "task_id": task_id,
         "task_name": DEFAULT_TASK_NAME,
         "queue": DEFAULT_QUEUE,
         "priority": "normal",
-        "client_object_ref": client_object_ref,
+        "object_ref": object_ref,
         "model_id": model_id,
         "model_type": _infer_model_type(model_id),
         "state": "start",
@@ -147,11 +147,10 @@ def _make_task(task_id: str, client_object_ref: str, model_id: str) -> dict[str,
         "expires_at": None,
         "worker": None,
         "request": {
-            "client_object_ref": client_object_ref,
+            "object_ref": object_ref,
             "model_id": model_id,
         },
         "sources": _detect_sources(model_id),
-        "quality": None,
         "model_confidence": None,
         "result_preview": [],
         "result": None,
@@ -165,9 +164,9 @@ def _make_task(task_id: str, client_object_ref: str, model_id: str) -> dict[str,
     }
 
 
-def record_task_created(task_id: str, client_object_ref: str, model_id: str) -> None:
+def record_task_created(task_id: str, object_ref: str | None, model_id: str) -> None:
     with _LOCK:
-        task = _make_task(task_id, client_object_ref, model_id)
+        task = _make_task(task_id, object_ref, model_id)
         task["poll_history"].append({
             "timestamp": _iso(task["received_at"]),
             "status": 202,
@@ -214,7 +213,6 @@ def record_task_done(task_id: str, payload: dict[str, Any]) -> None:
         data = payload.get("data") or {}
         output = data.get("output") if isinstance(data, dict) else None
         task["result_preview"] = output[:6] if isinstance(output, list) else []
-        task["quality"] = data.get("quality") if isinstance(data, dict) else payload.get("quality")
         task["model_confidence"] = data.get("model_confidence") if isinstance(data, dict) else payload.get("model_confidence")
         task["error"] = payload.get("message") if status_code != 200 else None
         task["actions"]["retry"] = status_code in (422, 500, 503)
@@ -244,7 +242,7 @@ def list_tasks(
         worker_name = item.get("worker") or "unassigned"
         haystack = " ".join([
             item.get("task_id", ""),
-            item.get("client_object_ref", ""),
+            item.get("object_ref", "") or "",
             item.get("model_id", ""),
             worker_name,
         ]).lower()
@@ -358,7 +356,7 @@ def get_models_analytics() -> dict[str, Any]:
                     "last_run_state": None,
                     "last_run_status_code": None,
                     "runtimes": [],
-                    "mape_values": [],
+                    "confidence_values": [],
                     "health_status": "ok",
                 }
             
@@ -381,30 +379,30 @@ def get_models_analytics() -> dict[str, Any]:
                     stats["last_run_state"] = task.get("display_state")
                     stats["last_run_status_code"] = status_code
                 
-                # Собираем runtime и MAPE
+                # Собираем runtime и confidence
                 runtime = task.get("runtime_s")
                 if runtime is not None:
                     stats["runtimes"].append(runtime)
                 
-                quality = task.get("quality")
-                if quality is not None and isinstance(quality, (int, float)):
-                    stats["mape_values"].append(quality)
+                confidence = task.get("model_confidence")
+                if confidence is not None and isinstance(confidence, (int, float)):
+                    stats["confidence_values"].append(confidence)
         
         # Рассчитываем итоговую статистику для каждой модели
         result = []
         for model_id, stats in models_stats.items():
             # Рассчитываем средние значения
             avg_runtime = sum(stats["runtimes"]) / len(stats["runtimes"]) if stats["runtimes"] else 0.0
-            avg_mape = sum(stats["mape_values"]) / len(stats["mape_values"]) if stats["mape_values"] else None
+            avg_confidence = sum(stats["confidence_values"]) / len(stats["confidence_values"]) if stats["confidence_values"] else None
             
             # Определяем health status
             last_state = stats["last_run_state"]
             if last_state and last_state == "done 200":
-                # Проверяем MAPE
-                if avg_mape is not None:
-                    if avg_mape < 7:
+                # Проверяем confidence
+                if avg_confidence is not None:
+                    if avg_confidence >= 0.8:
                         health = "ok"
-                    elif avg_mape < 12:
+                    elif avg_confidence >= 0.5:
                         health = "warning"
                     else:
                         health = "error"
@@ -436,7 +434,7 @@ def get_models_analytics() -> dict[str, Any]:
                     (stats["successful_runs"] / stats["total_runs"] * 100) if stats["total_runs"] > 0 else 0, 1
                 ),
                 "avg_runtime_s": round(avg_runtime, 1),
-                "avg_mape": round(avg_mape, 1) if avg_mape is not None else None,
+                "avg_confidence": round(avg_confidence, 4) if avg_confidence is not None else None,
                 "last_run_at": _iso(stats["last_run_at"]) if isinstance(stats["last_run_at"], datetime) else stats["last_run_at"],
                 "last_run_state": stats["last_run_state"],
                 "last_run_status_code": stats["last_run_status_code"],

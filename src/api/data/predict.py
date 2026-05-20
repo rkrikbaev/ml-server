@@ -1,6 +1,5 @@
-# Mariya Polkovnikova
-# 2026.03.12, 02:54 PM
-
+# author: Rustam Krikbayev <rkrikbaev@gmail.com>
+# date: 2024.06.12
 
 from typing import Annotated, Any
 from pydantic import (
@@ -16,39 +15,23 @@ from pydantic import (
 from api import TAG_PREDICT_CREATE, TAG_PREDICT_UPDATE
 
 
-class ModelSelectionSchema(BaseModel):
-    """Optional selector for resolving a model in MLflow Registry."""
-
-    model_config = ConfigDict(strict=True, extra="forbid")
-
-    version_alias: str | None = None
-    version: str | None = None
-
-    @model_validator(mode="after")
-    def validate_selection(self) -> "ModelSelectionSchema":
-        if self.version_alias and self.version:
-            raise ValueError("'version_alias' and 'version' are mutually exclusive")
-        if self.version is not None and len(self.version) == 0:
-            raise ValueError("'version' must be non-empty")
-        if self.version_alias is not None and len(self.version_alias) == 0:
-            raise ValueError("'version_alias' must be non-empty")
-        return self
-
-
 class PredictCreateSchema(BaseModel):
     """
     Settings for prediction creation.
 
-    The client supplies only the client object reference and the model identifier.
-    All other parameters (archives, step, output_range, …) are read from
-    the model's config.json on the server side.
+    Canonical public GET contract:
+    - model_id (path)
+    - object_ref (query, optional)
+    - version_alias (query, optional, defaults to Production)
+
+    Runtime parameters are loaded from bundle/configuration/cache_config.json.
     """
 
     model_config = ConfigDict(strict=True, extra="forbid")
 
-    model_id: str = "none"
-    client_object_ref: str
-    model_selection: ModelSelectionSchema | None = None
+    model_id: str
+    object_ref: str | None = None
+    version_alias: str = "Production"
 
     @computed_field
     @property
@@ -58,13 +41,7 @@ class PredictCreateSchema(BaseModel):
     @computed_field
     @property
     def selector(self) -> str:
-        if self.model_selection is None:
-            return "Production"
-        if self.model_selection.version:
-            return self.model_selection.version
-        if self.model_selection.version_alias:
-            return self.model_selection.version_alias
-        return "Production"
+        return self.version_alias or "Production"
 
     @field_validator("model_id")
     @classmethod
@@ -73,13 +50,22 @@ class PredictCreateSchema(BaseModel):
             raise ValueError("'model_id' must be non-empty")
         return v
 
-    @field_validator("client_object_ref")
+    @field_validator("object_ref")
     @classmethod
-    def check_client_object_ref(cls, v: str) -> str:
+    def check_object_ref(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         if len(v) == 0:
-            raise ValueError("'client_object_ref' must be non-empty")
+            raise ValueError("'object_ref' must be non-empty")
         if "/" not in v and "\\" not in v:
-            raise ValueError("'client_object_ref' must contain '/' or '\\'")
+            raise ValueError("'object_ref' must contain '/' or '\\'")
+        return v
+
+    @field_validator("version_alias")
+    @classmethod
+    def check_version_alias(cls, v: str) -> str:
+        if len(v) == 0:
+            raise ValueError("'version_alias' must be non-empty")
         return v
 
 

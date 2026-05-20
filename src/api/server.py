@@ -9,14 +9,14 @@ import json
 import os
 import resource
 
-from fastapi import FastAPI, Request, Body, Query
+from fastapi import FastAPI, Request, Query
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.exceptions import RequestValidationError, HTTPException
 
 from api.utils import get_fields
 from .broker import broker, api_predict
 from .data import PredictCreateSchema
-from .forecast import load_model_config
+from adapters import load_model_config
 from .message import HTTPState, HTTPMessages
 from .task_monitor import get_task, list_tasks, record_task_created, record_task_done, record_task_processing, get_models_analytics, get_model_runs
 
@@ -48,8 +48,8 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 
     for item in exc.errors():
         field = item["loc"]
-        if field[2] in fields.setdefault(field[1], []):
-            details.setdefault(field[1], []).append(f"'{field[2]}' : {item["msg"]}")
+        if len(field) > 2 and field[2] in fields.setdefault(field[1], []):
+            details.setdefault(field[1], []).append(f"'{field[2]}' : {item['msg']}")
 
     return messages.to_json_response(messages.unprocessable_entity(details))
 
@@ -266,8 +266,7 @@ async def ui_model_detail(model_id: str = Query(..., min_length=1)) -> JSONRespo
             "state": last_run_task.get("display_state"),
             "worker": last_run_task.get("worker"),
             "received_at": last_run_task.get("received_at"),
-            "client_object_ref": last_run_task.get("client_object_ref"),
-            "object_reference": last_run_task.get("object_reference"),
+            "object_ref": last_run_task.get("object_ref"),
         }
 
     # Extract SCADA archive list
@@ -381,12 +380,21 @@ async def ui_task_detail(task_id: str) -> JSONResponse:
         status_code=200,
     )
 
-@app.post("/predict")
-async def process_data(data: PredictCreateSchema = Body(...)) -> JSONResponse:
+@app.get("/predict/{model_id}")
+async def process_data(
+    model_id: str,
+    version_alias: str = Query("Production"),
+    object_ref: str | None = Query(None),
+) -> JSONResponse:
+    data = PredictCreateSchema(
+        model_id=model_id,
+        version_alias=version_alias,
+        object_ref=object_ref,
+    )
     task = await api_predict.kiq(data)
-    record_task_created(task.task_id, data.client_object_ref, data.model_id)
+    record_task_created(task.task_id, data.object_ref, data.model_id)
     return messages.to_json_response(
-        messages.accepted_start(task.task_id, data.client_object_ref),
+        messages.accepted_start(task.task_id, data.object_ref),
         task.task_id,
         HTTPState.START
     )

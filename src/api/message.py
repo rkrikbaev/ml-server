@@ -87,10 +87,10 @@ class HTTPMessages:
 
     # 202
     @classmethod
-    def accepted_start(cls, id: str, client_object_ref: str) -> JSONResponse:
+    def accepted_start(cls, id: str, object_ref: str | None) -> JSONResponse:
         content = cls.response(HTTPStatuses.SC202)
         content["task_id"] = id
-        content["client_object_ref"] = client_object_ref
+        content["object_ref"] = object_ref
         return content
 
     @classmethod
@@ -113,9 +113,8 @@ class HTTPMessages:
         return content
 
     @classmethod
-    def unprocessable_entity_ndc(cls, quality: int) -> JSONResponse:
+    def unprocessable_entity_ndc(cls) -> JSONResponse:
         content = cls.response(HTTPStatuses.SC422, "Incorrect data in the dataset from archives.")
-        content["quality"] = quality
         return content
 
     @classmethod

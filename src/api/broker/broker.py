@@ -38,7 +38,7 @@ async def api_predict(data: Dict[str, Any]) -> Dict[str, Any]:
         online=data["online"],
         selector=data.get("selector"),
     )
-    output["client_object_ref"] = data["client_object_ref"]
+    output["object_ref"] = data.get("object_ref")
     return output
 
 

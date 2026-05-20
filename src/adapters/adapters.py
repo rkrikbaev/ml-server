@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional, List
 import pandas as pd
 import numpy as np
 
-from api.forecast.base_interface import BaseModel, PredictionInput, PredictionOutput
+from adapters.base_interface import BaseModel, PredictionInput, PredictionOutput
 
 logger = logging.getLogger(__name__)
 
