@@ -15,3 +15,4 @@ mlflow_artifacts
 mlflow.db
 tests/fixtures/test_data/sample.csv
 mlruns/
+mlflow.db
