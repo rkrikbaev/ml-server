@@ -24,7 +24,7 @@
 
 Пример структуры cached bundle:
 
-- /tmp/mlserver_registry_cache/<model>/<selector>/<run_id>/bundle/
+- /tmp/local_models_cache/<model>/<selector>/<run_id>/bundle/
   - model/
   - configuration/
     - cache_config.json
@@ -67,16 +67,8 @@ MLFLOW_PORT=5000
 
 ## Как переключить модель
 1. Скопировать/поместить новую модель в `../local/models/<имя_модели>` (например `../local/models/my_model`).
-2. В запросе указать `model_id` и при необходимости `model_selection`:
-```json
-{
-    "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
-    "model_id": "prophet_watt_h_AKMOLA_@regions_Akmola_load",
-    "model_selection": {
-      "version_alias": "Production"
-    }
-}
-```
+2. В запросе указать `model_id` и `model_selection`:
+
 Сервер разрешит нужную модель через MLflow Registry, скачает `bundle` и положит его в локальный cache.
 
 ## Как модель загружается в коде
@@ -86,8 +78,8 @@ MLFLOW_PORT=5000
 - Модуль `fpforecast` (реализация моделей) загружается из `/workspace/lib/fpforecast`.
 
 ## MLflow (опционально)
-- MLflow сервис в compose монтирует `../mlruns:/mlflow/mlruns` (хост -> контейнер)
-- Если вы используете mlflow для хранения артефактов, убедитесь, что path `mlruns/` создан и доступен для записи.
+- MLflow сервис в compose монтирует `../local/mlruns:/mlflow/mlruns` (хост -> контейнер)
+- Если вы используете mlflow для хранения артефактов, убедитесь, что path `../local/mlruns/` создан и доступен для записи.
 
 ## MLflow — схема хранения и "паспорт данных"
 
@@ -119,19 +111,9 @@ MLFLOW_PORT=5000
   - Масштабируемость: SQLite даёт быстрый доступ к метаданным (фильтрация запусков и поиск по тегам).
   - Воспроизводимость: можно восстановить цепочку — какая модель обучалась на каких данных и с какими параметрами.
 
-Если вы хотите, могу дополнительно:
-- добавить в `docker-compose.yml` опцию для монтирования `mlflow_data` (если нужно отделить от `mlruns`),
-- добавить пример кода для записи "паспорта данных" в MLflow (пример вызова `mlflow.set_tag("data_source_config", json.dumps(cfg))`).
-
 ## Рекомендации по бэкапу и правам
 - Регулярно бэкапьте `ml-server/local` и `mlruns/` (если используется MLflow).
 - Проверьте права доступа на каталоги, чтобы контейнер мог читать/писать (в macOS обычно права root<->user переводятся автоматически, но в Linux может потребоваться chown).
-
-## Частые ошибки и как их решать
-ModuleNotFoundError: No module named 'api' — обычно из-за неправильного тома `src` (монтируется не туда). Проверьте, что `ml-server/src` реально содержит `api/`.
-ModuleNotFoundError: No module named 'fpforecast' — проверьте, что монтируется `models/` (в котором есть `fpforecast/`), и что `PYTHONPATH` включает `/workspace/lib`.
-Docker build failed: `/requirements.txt: not found` — убедитесь, что в контексте сборки (`context: .`) есть `requirements.txt` (в `ml-server/requirements.txt`).
-Ошибки с приватными git: см. раздел SSH выше.
 
 ## Общий интерфейс модели (Common Model Interface)
 

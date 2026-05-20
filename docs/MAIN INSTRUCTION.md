@@ -27,19 +27,18 @@
 
 ### 1.1 Назначение
 
-ML-сервер предназначен для обучения и эксплуатации моделей прогнозирования временных рядов (нагрузка, энергопотребление) по объектам энергосистемы. Система обслуживает запросы от внешней SCADA-системы и реализует полный ML-пайплайн: сбор данных → загрузку модели → получение прогноза. Обучение моеделй происходит отдельно, пока под управлением инженера.
+ML-сервер (далее Runner) обученных моделей предназначен для эксплуатации моделей прогнозирования временных рядов (нагрузка, энергопотребление) по объектам энергосистемы. Система обслуживает запросы от внешней SCADA-системы и реализует полный ML-пайплайн: сбор данных → загрузку модели → получение прогноза. Обучение моеделй происходит отдельно, пока под управлением инженера в тетрадках (Jupyter Notebook).
 
 ### 1.2 Основные возможности
 
 - Прогнозирование временных рядов по произвольному объекту (регион, подстанция и т.д.)
-- Обучение моделей Prophet и XGBoost по запросу
 - Хранение артефактов и метаданных моделей в MLflow
 - Динамическое добавление новых объектов прогнозирования без изменения кода
 - Сбор данных из нескольких внешних REST API в зависимости от конфигурации модели ("паспорт данных")
 
 ### 1.3 Потребитель системы
 
-Внешняя SCADA-система взаимодействует с ML-сервером через REST API. Запросы инициируются SCADA-системой (pull-модель).
+Внешняя pull-система (например SCADA система) взаимодействует с Runner через REST API интерфейс по протоколу HTTP. Запросы инициируются внешней системой (pull-система).
 
 ---
 
@@ -47,32 +46,32 @@ ML-сервер предназначен для обучения и эксплу
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      SCADA-система                       │
+│                      pull-система                       │
 └───────────────────────┬─────────────────────────────────┘
                         │ REST API (HTTP)
                         ▼
-┌─────────────────────────────────────────────────────────┐
-│                      ml-server                           │
+┌──────────────────────────────────────────────────────────┐
+│                      Runner                              │
 │                                                          │
-│   ┌─────────────┐   ┌──────────────┐  ┌─────────────┐  │
-│   │  API Layer  │   │ Train Pipeline│  │  Predict    │  │
-│   │  (FastAPI)  │──▶│  (по запросу)│  │  Pipeline   │  │
-│   └──────┬──────┘   └──────┬───────┘  └──────┬──────┘  │
-│          │                 │                  │          │
-│          │          ┌──────▼──────────────────▼──────┐  │
-│          │          │         Data Loader             │  │
-│          │          │  (REST API внешних источников)  │  │
-│          │          └─────────────────────────────────┘  │
-│          │                                               │
-│   ┌──────▼──────────────────────────────────────────┐   │
-│   │                    MLflow                        │   │
-│   │  Backend: SQLite  │  Artifacts: ./mlflow_data   │   │
-│   └─────────────────────────────────────────────────┘   │
+│                      ┌─────────────┐                     │
+│                      │  Predict    │                     │
+│                      │  Pipeline   │                     │
+│                      └──────┬──────┘                     │
+│                             │                            │
+│           ┌─────────────────▼───────────────┐            │
+│           │         Data Loader             │            │
+│           │  (REST API внешних источников)  │            │
+│           └─────────────────────────────────┘            │
+│                                                          │
+│   ┌──────────────────────────────────────────────────┐   │
+│   │                       MLflow                     │   │
+│   │        Backend: SQLite  │  Artifacts: ./mlruns   │   │
+│   └──────────────────────────────────────────────────┘   │
 │                                                          │
 │   ┌───────────┐                                          │
 │   │   Redis   │  (кэш результатов / очередь задач)       │
 │   └───────────┘                                          │
-└─────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### 2.1 Сервисы Docker Compose
@@ -87,14 +86,13 @@ ML-сервер предназначен для обучения и эксплу
 
 ## 3. Компоненты инфраструктуры
 
-### 3.1 ml_model (основной сервис)
+### 3.1 Runner (основной сервис)
 
 **Функции:**
-- Приём и обработка HTTP-запросов от SCADA
-- Запуск пайплайна обучения по запросу
+- Приём и обработка HTTP-запросов от pull-системы
 - Запуск пайплайна инференса
 - Взаимодействие с MLflow (чтение/запись метаданных и артефактов)
-- Взаимодействие с внешними REST API через `data_loader`
+- Взаимодействие с внешними REST API
 
 **Технологический стек:**
 - Python 3.10+
@@ -105,14 +103,12 @@ ML-сервер предназначен для обучения и эксплу
 
 **Монтируемые тома:**
 ```
-ml-server/src           → /workspace/server   (серверный код)
-ml-server/local/models  → /workspace/models   (артефакты моделей)
-fpforecast/             → /workspace/lib       (библиотека моделей)
+./src                → /workspace/server   (серверный код)
+/local_models_cache  → /workspace/models   (артефакты моделей)
 ```
 
 **Переменные окружения:**
 ```
-PYTHONPATH=/workspace/server:/workspace/lib
 MLFLOW_TRACKING_URI=http://mlflow:5000
 ```
 
@@ -120,11 +116,12 @@ MLFLOW_TRACKING_URI=http://mlflow:5000
 
 **Схема хранения:**
 - Backend Store (метаданные, теги, метрики, параметры): `sqlite:///mlflow_data/mlflow.db`
-- Artifact Store (модели, датасеты, графики): `./mlflow_data/artifacts`
+- Artifact Store (модели, датасеты, графики): `../locals/mlruns/<Experiment ID>/<Run ID>/artifacts`
 
 **Монтируемые тома:**
 ```
-ml-server/mlflow_data  → /mlflow/mlflow_data
+../local/mlruns   → /mlflow/mlruns
+mlflow_data       → /mlflow
 ```
 
 **Команда запуска:**
@@ -133,7 +130,7 @@ mlflow server \
   --host 0.0.0.0 \
   --port 5000 \
   --backend-store-uri sqlite:///mlflow_data/mlflow.db \
-  --default-artifact-root ./mlflow_data/artifacts
+  --default-artifact-root /mlflow/mlruns
 ```
 
 ### 3.3 Redis
@@ -148,18 +145,18 @@ mlflow server \
 
 ### 4.1 Инициация
 
-Обучение запускается **по явному запросу** через API. Параллельный фоновый запуск (Celery/cron) — **вне scope данного ТЗ**.
+Обучение проводиться дата-инженером вручную в отдельной тетради `MODEL_DATA_COLLECTION.ipynb`.
 
-**Точка входа:** `POST /train`
+**Точка входа:** Тетрадь в которой инженер готовит данные. Здесь согласно подготовленным конфигурационным файлам система собирает необходимые данные.
 
 ### 4.2 Шаги пайплайна
 
 ```
-1. Приём запроса (object_reference, model_type, data_source_config)
+1. Загрузка и формирование файла data_config.json для описания модели из двух файлов подготовлнных дата-инженером: 1. параметры модели - файл `models.csv`, 2. источники данных - файл `inputs.csv`.
         │
         ▼
-2. Сбор данных (data_loader)
-   └── Запрос к внешним REST API согласно data_source_config
+2. Сбор данных
+   └── Запрос к внешним REST API согласно data_config.json
    └── Формирование DataFrame
         │
         ▼
@@ -176,37 +173,35 @@ mlflow server \
    └── mlflow.log_params(...)        — гиперпараметры
    └── mlflow.log_metrics(...)       — метрики качества (MAE, MAPE, RMSE)
    └── mlflow.set_tag("data_source_config", json.dumps(cfg))  — "паспорт данных"
-   └── mlflow.set_tag("object_reference", ...)
+  └── mlflow.set_tag("object_ref", ...)
    └── mlflow.set_tag("model_type", ...)
    └── mlflow.<framework>.log_model(...)  — артефакт модели
-        │
-        ▼
-6. Возврат run_id и метрик в ответе API
+   
 ```
 
 ### 4.3 "Паспорт данных" (Data Passport)
 
-Каждая обученная модель хранит в MLflow тег `data_source_config` — JSON-объект, описывающий источник данных:
+Каждая модель должна иметь `data_config` — JSON-объект, содержащий информацию об конфигурации модели, например:
 
 ```json
 {
+  "object_ref": "/root/FP/PROJECT/AKMOLA/@regions/North Kazakhstan/load/@models/P_watt",
+  "input_range": 72,
+  "output_range": 24,
+  "step": 3600,
   "sources": [
     {
-      "type": "rest_api",
-      "url": "http://datasource1.example.com/api/timeseries",
-      "params": {
-        "object_id": "AKMOLA_LOAD",
-        "interval": "1h"
-      }
+      "url": "http://127.0.0.1:7080/api/v1/read/archives",
+      "parameters": [
+        "/root/FP/PROJECT/AKMOLA/@regions/SevKaz/Load/P_Load/archives/out_value"
+      ],
+      "pattern": "historical[forecast,plan]"
     }
-  ],
-  "date_column": "timestamp",
-  "target_column": "value",
-  "freq": "H"
+  ]
 }
 ```
 
-Это позволяет системе при инференсе **автономно** знать, откуда брать данные, без дополнительной конфигурации.
+Это позволяет системе при инференсе **автономно** знать, откуда и как брать данные.
 
 ### 4.4 Поддерживаемые типы моделей
 
@@ -221,20 +216,20 @@ mlflow server \
 
 ### 5.1 Инициация
 
-**Точка входа:** `POST /predict`
+**Точка входа:** `GET /predict/{model_id}?version_alias=Production`
 
 ### 5.2 Шаги пайплайна
 
 ```
-1. Приём запроса (object_reference, model_id, horizon)
+1. Приём запроса (object_ref, model_id, version_alias)
         │
         ▼
 2. Поиск модели в MLflow
-   └── Получение run_id по model_id
+  └── Получение run_id по model_id и version_alias
    └── Чтение тега data_source_config ("паспорт данных")
         │
         ▼
-3. Сбор данных (data_loader)
+3. Сбор данных
    └── Запрос к внешним REST API согласно data_source_config
    └── Формирование DataFrame для инференса
         │
@@ -248,21 +243,15 @@ mlflow server \
         ▼
 6. Формирование и возврат ответа
    └── Временной ряд прогноза (timestamp + value)
-   └── Метаданные (model_id, run_id, горизонт, интервал)
+   └── Метаданные (model_id, run_id)
 ```
 
 ### 5.3 Идентификация модели
 
-Запрос к API содержит:
+Идентификация модели проходит по следующим параметрам:
 
-```json
-{
-  "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
-  "model_id": "prophet_watt_h_AKMOLA_@regions_Akmola_load"
-}
-```
-
-`model_id` — это имя зарегистрированной модели или `run_id` в MLflow.
+`model_id` — это имя зарегистрированной модели в MLflow.
+`version_alias` — alias версии модели `model_id` (например, `Production`).
 
 ---
 
@@ -270,14 +259,14 @@ mlflow server \
 
 ### 6.1 Структура эксперимента
 
-Каждый объект прогнозирования — это отдельный **MLflow Experiment**. Имя эксперимента формируется из `object_reference`.
+Каждый объект прогнозирования — это отдельный **MLflow Experiment**. Имя эксперимента формируется из `object_ref`.
 
 ```
 Experiment: /KAZ/AKMOLA/P_WATT
 └── Run: prophet_watt_h_AKMOLA_load  (run_id: abc123)
     ├── Tags:
     │   ├── data_source_config: "{...}"
-    │   ├── object_reference: "/KAZ/AKMOLA/..."
+    │   ├── object_ref: "/KAZ/AKMOLA/..."
     │   └── model_type: "prophet"
     ├── Params: changepoint_prior_scale, seasonality_mode, ...
     ├── Metrics: mae, mape, rmse
@@ -289,9 +278,11 @@ Experiment: /KAZ/AKMOLA/P_WATT
 
 Для добавления нового объекта прогнозирования **не требуется изменение кода**. Достаточно:
 
-1. Отправить `POST /train` с новым `object_reference` и `data_source_config`
-2. MLflow автоматически создаст новый эксперимент
-3. Артефакт модели сохранится в `mlflow_data/artifacts`
+1. Добавить в файлы параметры нового объекта: 1. параметры модели - файл `models.csv`, 2. источники данных - файл `inputs.csv` с новым `object_ref`.
+2. Запустить тетрадь `./procedures/training/MODEL_DATA_COLLECTION.ipynb`; по завершению в `../local/models/` будет сформирована директория с именем модели (преобразованный `object_ref` + `_` + `output_range` + `hour`) и сформирован новый `data_config.json`.
+3. Запустить тетрадь `ml-server/procedures/training/MODEL_TRAINING_MANUAL_WORKFLOW.ipynb` для обучения новой модели согласно данным из `data_config.json`.
+2. По завершению MLflow автоматически создаст новый эксперимент.
+3. Артефакт модели сохранится в `../local/mlruns/artifacts`
 
 ### 6.3 Версионирование
 
@@ -301,71 +292,53 @@ Experiment: /KAZ/AKMOLA/P_WATT
 
 ## 7. API-интерфейс
 
+Подробная API-документация: [ml-server/docs/API/MAIN.md](API/MAIN.md)
+
 ### 7.1 Эндпоинты
 
-#### `POST /predict` — Запрос прогноза
+#### `GET /predict/{model_id}?version_alias=Production&object_ref={object_ref}` — Запрос на вызов модели
 
-**Request Body:**
-```json
-{
-  "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
-  "model_id": "prophet_watt_h_AKMOLA_@regions_Akmola_load"
-}
-```
+где `object_ref` - идентификатор объекта на стороне клиента (опционально), `model_id` - идентификатор модели (обязательно), `version_alias` - версия модели (обязательно). 
 
 **Response `200`:**
 ```json
 {
-  "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
-  "model_id": "prophet_watt_h_AKMOLA_@regions_Akmola_load",
-  "run_id": "abc123def456",
-  "forecast": [
-    {"timestamp": "2026-04-17T00:00:00Z", "value": 1234.5},
-    {"timestamp": "2026-04-17T01:00:00Z", "value": 1198.2}
-  ],
-  "freq": "H",
-  "horizon": 24
+    "status": 202,
+    "task_id": "516c2ffaccfa4be285ec1b944ae6c4de",
+  "object_ref": "/root/FP/PROJECT/AKMOLA/@regions/North Kazakhstan/load/@models/P_watt",
+    "state": "start"
 }
 ```
 
----
+### `GET /tasks/{task_id}` - запрос на получение ответа от модели
 
-#### `POST /train` — Запуск обучения
-
-**Request Body:**
-```json
-{
-  "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
-  "model_type": "prophet",
-  "data_source_config": {
-    "sources": [
-      {
-        "type": "rest_api",
-        "url": "http://datasource.example.com/api/timeseries",
-        "params": {"object_id": "AKMOLA_LOAD", "interval": "1h"}
-      }
-    ],
-    "date_column": "timestamp",
-    "target_column": "value",
-    "freq": "H"
-  },
-  "train_params": {
-    "changepoint_prior_scale": 0.05,
-    "seasonality_mode": "multiplicative"
-  }
-}
-```
+где `task_id` - индентификатор задачи полученной на предыдущем этапе
 
 **Response `200`:**
 ```json
 {
-  "status": "success",
-  "run_id": "abc123def456",
-  "model_id": "prophet_watt_h_AKMOLA_@regions_Akmola_load",
-  "metrics": {
-    "mae": 45.2,
-    "mape": 3.1,
-    "rmse": 62.8
+    "status": 202,
+    "task_id": "516c2ffaccfa4be285ec1b944ae6c4de",
+    "state": "processing"
+}
+```
+
+когда прогноз еще не готов, 
+
+или при успешном получении результата:
+
+```json
+{
+  "status": 200,
+  "state": "done",
+  "task_id": "f3b44ac9720f40108ad16def9f300b4e",
+  "object_ref": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
+  "data": {
+    "message": "...",
+    "output": [
+      [1746900000, 312.4, 0],
+      [1746903600, 314.1, 0]
+    ]
   }
 }
 ```
@@ -380,8 +353,8 @@ Experiment: /KAZ/AKMOLA/P_WATT
   "models": [
     {
       "model_id": "prophet_watt_h_AKMOLA_@regions_Akmola_load",
-      "object_reference": "/KAZ/AKMOLA/...",
-      "model_type": "prophet",
+      "object_ref": "/KAZ/AKMOLA/...",
+      "type": "prophet",
       "run_id": "abc123",
       "created_at": "2026-04-15T10:00:00Z",
       "metrics": {"mae": 45.2, "mape": 3.1}
@@ -427,7 +400,7 @@ Experiment: /KAZ/AKMOLA/P_WATT
 MODEL=models
 
 # Порты
-PORT=18888
+PORT=8030
 REDIS_PORT=6379
 MLFLOW_PORT=5000
 
@@ -438,27 +411,32 @@ MLFLOW_TRACKING_URI=http://mlflow:5000
 RZ_API_URL=http://external-datasource.example.com
 ```
 
-### 8.2 Конфигурация модели (`config.yaml`)
+### 8.2 Конфигурация модели (`cache_config.json`)
 
-Файл размещается в папке модели (`/workspace/models/<model_name>/config.yaml`):
+Файл размещается в папке модели (`../local/mlruns/<Experiment id>/<Run id>/artifacts/bundle/configuration/cache_config.json`):
 
 ```yaml
-model_type: prophet
-object_reference: /KAZ/AKMOLA/AKMOLA/@models/P_WATT
-freq: H
-horizon: 24
-
-prophet:
-  changepoint_prior_scale: 0.05
-  seasonality_mode: multiplicative
-  yearly_seasonality: true
-  weekly_seasonality: true
-
-xgboost:
-  n_estimators: 200
-  max_depth: 6
-  learning_rate: 0.05
-  lags: [1, 2, 3, 24, 48, 168]
+{
+  "step": 3600,
+  "input_range": null,
+  "output_range": 36,
+  "model_type": "prophet",
+  "fallback": "none",
+  "config": {},
+  "sources": {
+    "historical_data": {
+      "type": "historical_data",
+      "url": "http://127.0.0.1:7080/api/v1/read/archives",
+      "request": {
+        "archive": [
+          "/root/FP/PROJECT/AKMOLA/@regions/SevKaz/Load/P_Load/archives/out_value"
+        ],
+        "step": 3600,
+        "pattern": "historic"
+      }
+    }
+  }
+}
 ```
 
 ### 8.3 Метаданные модели (`meta.json`)
@@ -466,17 +444,16 @@ xgboost:
 ```json
 {
   "model_id": "prophet_watt_h_AKMOLA_@regions_Akmola_load",
-  "model_type": "prophet",
-  "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
+  "type": "prophet",
+  "object_ref": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
   "run_id": "abc123def456",
   "trained_at": "2026-04-15T10:00:00Z",
   "metrics": {
     "mae": 45.2,
     "mape": 3.1,
-    "rmse": 62.8
-  },
-  "freq": "H",
-  "horizon": 24
+    "rmse": 62.8,
+    "wape": 3.1
+  }
 }
 ```
 
@@ -506,21 +483,16 @@ project_root/
 │   ├── requirements.txt
 │   └── .env
 │
-├── fpforecast/                       # Библиотека моделей (→ /workspace/lib)
-│   └── fpforecast/
-│       ├── prophet_model.py
-│       └── xgboost_model.py
-│
-├── local/
-│   └── models/                       # Артефакты моделей (→ /workspace/models)
+├── /tmp/
+│   └── local_models_cache/                       # Артефакты моделей (→ /workspace/models)
 │       └── <model_name>/
 │           ├── model.pkl
 │           ├── meta.json
 │           └── config.yaml
 │
-└── mlflow_data/                      # MLflow хранилище
-    ├── mlflow.db                     # SQLite backend
-    └── artifacts/                    # Артефакты моделей
+└── local/                          # Локальное хранилище
+    ├── mlflow.db                   # SQLite backend
+    └── mlruns/                     # Артефакты моделей
 ```
 
 ---
@@ -530,45 +502,82 @@ project_root/
 ### 10.1 Docker Compose (целевая конфигурация)
 
 ```yaml
-version: "3.9"
-
 services:
-  ml_model:
+  model-server:
+    image: fpcloud/ml:1.0.0
     build:
       context: .
       dockerfile: ./docker/Dockerfile
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    container_name: models_${MODEL:-models}
+    restart: unless-stopped
+    command: >
+      bash -c "
+        taskiq worker api.broker:broker --workers 8 &
+        python -u -m uvicorn api.server:app --host 0.0.0.0 --port 8030 &
+        wait -n
+      "
     ports:
-      - "${PORT:-18888}:8000"
-    volumes:
-      - /abs/path/to/ml-server/src:/workspace/server
-      - /abs/path/to/fpforecast:/workspace/lib
-      - ../local/${MODEL:-models}:/workspace/models
+      - "${PORT:-8030}:8030"
     environment:
       - PYTHONUNBUFFERED=1
-      - PYTHONPATH=/workspace/server:/workspace/lib
+      - TEST_MODE=true
+      - SCADA_STUB_ENABLED=${SCADA_STUB_ENABLED:-false}
+      - HISTORICAL_DATA_STUB_ENABLED=${HISTORICAL_DATA_STUB_ENABLED:-false}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
-      - REDIS_URL=redis://redis:6379
+      - MLFLOW_REGISTRY_URI=http://mlflow:5000
+      - MLFLOW_DEFAULT_ALIAS=Production
+      - MODEL_REGISTRY_CACHE_MAX=3
+      - MODEL_REGISTRY_CACHE_DIR=/tmp/local_models_cache
+    volumes:
+      - "./src:/workspace/server"
+      - "model_registry_cache:/tmp/local_models_cache"
     depends_on:
-      - mlflow
       - redis
+      - mlflow
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 1024M
+    tty: true
+    stdin_open: true
+    networks:
+      - ml
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ml
 
   mlflow:
     image: ghcr.io/mlflow/mlflow:latest
+    container_name: mlflow
+    restart: unless-stopped
+    # Run the MLflow tracking server explicitly. The upstream image's default
+    # CMD may not start the server (it can default to `python3`), causing the
+    # container to exit with code 0. Provide an explicit command so the
+    # container stays running and serves the UI on the mapped port.
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --serve-artifacts --artifacts-destination /mlflow/mlruns --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5050,127.0.0.1,127.0.0.1:5050,host.docker.internal
     ports:
-      - "${MLFLOW_PORT:-5000}:5000"
+      - "${MLFLOW_PORT:-5050}:5000"
     volumes:
-      - ../mlflow_data:/mlflow/mlflow_data
-    command: >
-      mlflow server
-      --host 0.0.0.0
-      --port 5000
-      --backend-store-uri sqlite:///mlflow_data/mlflow.db
-      --default-artifact-root ./mlflow_data/artifacts
-
-  redis:
-    image: redis:alpine
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "../local/mlruns:/mlflow/mlruns"
+      - "mlflow_data:/mlflow"
+    networks:
+      - ml
 ```
 
 ### 10.2 Минимальные требования к серверу
@@ -584,8 +593,7 @@ services:
 ### 10.3 Бэкап
 
 Регулярному бэкапу подлежат:
-- `ml-server/local/` — артефакты обученных моделей
-- `mlflow_data/` — база метаданных и артефакты MLflow
+- `../local/` — артефакты обученных моделей
 
 ---
 
@@ -594,7 +602,6 @@ services:
 | Параметр | Требование |
 |----------|------------|
 | Время ответа `/predict` | ≤ 5 секунд (при загруженной модели) |
-| Время обучения | ≤ 10 минут на одну модель (Prophet/XGBoost, до 3 лет данных) |
 | Доступность | 95% (плановые работы допустимы) |
 | Логирование | Все запросы и ошибки пишутся в stdout (docker logs) |
 | Версионирование моделей | Все версии хранятся в MLflow, старые не удаляются автоматически |

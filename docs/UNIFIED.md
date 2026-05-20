@@ -11,7 +11,7 @@
 2. [Структура проекта (FHS)](#2-структура-проекта-fhs)
 3. [Установка и запуск](#3-установка-и-запуск)
 4. [Конфигурация](#4-конфигурация)
-5. [API: единственный эндпоинт `/predict`](#5-api-единственный-эндпоинт-predict)
+5. [API: эндпоинты `/predict/{model_id}` и `/tasks/{task_id}`](#5-api-эндпоинты-predictmodel_id-и-taskstask_id)
    - [Схема запроса: создание (1-й запрос)](#51-схема-запроса-создание-1-й-запрос)
    - [Схема запроса: опрос результата (2-й запрос)](#52-схема-запроса-опрос-результата-2-й-запрос)
    - [HTTP ответы и сообщения](#53-http-ответы-и-сообщения)
@@ -37,11 +37,11 @@ ML Server — сервис для запуска математических м
 **Поток выполнения:**
 
 ```
-Клиент (1-й POST /predict)
+Клиент (1-й GET /predict/{model_id})
     → FastAPI принимает, отправляет задачу в Redis Stream
     → Возвращает 202 START + task_id
 
-Клиент (2-й POST /predict с task_id)
+Клиент (2-й GET /tasks/{task_id})
     → FastAPI проверяет результат в Redis
     → 202 PROCESSING (ещё не готово) ИЛИ 200 DONE (готово)
 
@@ -211,17 +211,15 @@ pytest -q
 
 ---
 
-## 5. API: единственный эндпоинт `/predict`
+## 5. API: эндпоинты `/predict/{model_id}` и `/tasks/{task_id}`
 
-**URL:** `POST /predict`  
-**Content-Type:** `application/json` (вход и выход)
+**URL (создание):** `GET /predict/{model_id}`  
+**URL (опрос):** `GET /tasks/{task_id}`
 
 Работает в два шага:
 
-1. **Создание задачи** — передаёте параметры прогноза → получаете `task_id`
-2. **Опрос результата** — передаёте `task_id` → получаете статус или готовый результат
-
-Разграничение схем происходит автоматически: если в теле запроса есть поле `task_id` — используется схема опроса, иначе — схема создания.
+1. **Создание задачи** — передаёте `model_id` (path), `version_alias` (query, optional), `object_ref` (query, optional) → получаете `task_id`
+2. **Опрос результата** — вызываете `GET /tasks/{task_id}` → получаете статус или готовый результат
 
 ---
 
@@ -229,16 +227,17 @@ pytest -q
 
 > Pydantic-класс `PredictCreateSchema` (`src/api/data/predict.py`)
 
-Клиент передаёт `object_reference`, опциональный `model_id` и опциональный `model_selection`.
+Клиент передаёт `model_id` (path), опциональный `object_ref` и опциональный `version_alias` (query).
 Все runtime-параметры прогноза (`archives`, `step`, `output_range` и др.)
 сервер читает самостоятельно из MLflow serving bundle `cache_config.json`.
 
 #### Поля
 
-| Поле               | Тип   | Обязательно | По умолчанию | Описание                                                        |
-|--------------------|-------|-------------|--------------|------------------------------------------------------------------|
-| `object_reference` | `str` | ✅           | —            | Путь к FP-объекту. Должен содержать `/` или `\`                 |
-| `model_id`         | `str` | ❌           | `"none"`     | Путь к модели относительно `/workspace/models`. `"none"` = онлайн-обучение |
+| Поле            | Тип          | Обязательно | По умолчанию  | Описание                                                        |
+|-----------------|--------------|-------------|---------------|------------------------------------------------------------------|
+| `model_id`      | `str`        | ✅           | —             | Идентификатор модели в Registry. `none` включает online-режим. |
+| `object_ref`    | `str \| null` | ❌           | `null`        | Путь к FP-объекту. Если задан, должен содержать `/` или `\`.  |
+| `version_alias` | `str`        | ❌           | `Production`  | Alias версии модели в MLflow Registry.                          |
 
 #### Внутреннее вычисляемое поле (нельзя передать извне)
 
@@ -248,17 +247,14 @@ pytest -q
 
 #### Валидация
 
-- `object_reference` — не пустое, содержит `/` или `\`
+- `object_ref` — не пустое, содержит `/` или `\`
 - `model_id` — не пустое
 - Схема строгая: лишние поля запрещены (`extra = "forbid"`)
 
 #### Пример запроса
 
-```json
-{
-  "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
-  "model_id": "prophet/watt/h/AKMOLA/@regions/Akmola/load"
-}
+```http
+GET /predict/prophet_watt_h_AKMOLA_@regions_Akmola_load?version_alias=Production&object_ref=/KAZ/AKMOLA/AKMOLA/@models/P_WATT
 ```
 
 ---
@@ -370,18 +366,12 @@ pytest -q
 
 ### 5.2 Схема запроса: опрос результата (2-й запрос)
 
-> Pydantic-класс `PredictUpdateSchema`
-
-| Поле      | Тип    | Обязательно | Описание                          |
-|-----------|--------|-------------|-----------------------------------|
-| `task_id` | `str`  | ✅           | UUID задачи, полученный из 1-го запроса |
+Опрос результата выполняется через path-параметр `task_id` в endpoint `GET /tasks/{task_id}`.
 
 #### Пример
 
-```json
-{
-  "task_id": "5c852360dce04d399eeaaedd947459ba"
-}
+```http
+GET /tasks/5c852360dce04d399eeaaedd947459ba
 ```
 
 ---
@@ -397,11 +387,11 @@ pytest -q
   "status": 202,
   "state": "start",
   "task_id": "...",
-  "object_reference": "..."
+  "object_ref": "..."
 }
 ```
 
-> ⚠️ **ПРОТИВОРЕЧИЕ #5** — `MESSAGES.md` показывает ключ `"fp_path"` в этом ответе. В коде (`message.py`) используется **`"object_reference"`**. Актуальный ключ — `object_reference`.
+> ⚠️ **ПРОТИВОРЕЧИЕ #5** — `MESSAGES.md` показывает ключ `"fp_path"` в этом ответе. В коде (`message.py`) используется **`"object_ref"`**. Актуальный ключ — `object_ref`.
 
 #### 202 — В обработке (PROCESSING)
 
@@ -422,24 +412,23 @@ pytest -q
   "status": 200,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
+  "object_ref": "...",
   "data": {
     "message": "",
     "output": [
-      [1774569600000, 660.2, 64],
+      [1774569600000, 660.2],
       ...
     ],
-    "quality": 64,
     "model_confidence": 1.0
   }
 }
 ```
 
-**Формат каждого элемента `output`:** `[timestamp_ms, value, qds]`
+**Формат каждого элемента `output`:** `[timestamp_ms, value]`
 
-> ⚠️ **ПРОТИВОРЕЧИЕ #6** — `MAIN.md` показывает ключ `"fp_path"` на верхнем уровне 200-ответа. В коде (`broker.py`) добавляется **`"object_reference"`**. Актуальный ключ — `object_reference`.
+> ✅ **ПРОТИВОРЕЧИЕ #6 (закрыто)** — публичный ключ ответа унифицирован как `object_ref`.
 
-> ⚠️ **ПРОТИВОРЕЧИЕ #7** — `model_confidence` в документации упоминается как значимая метрика. В коде **всегда захардкожено `1.0`** (`result.py`, строка `"model_confidence": 1.0`). Реальная логика не реализована.
+> ✅ **ПРОТИВОРЕЧИЕ #7 (закрыто)** — `model_confidence` теперь вычисляется в `src/api/broker/tasks/predict.py` как значение в диапазоне `[0.0, 1.0]` из `is_matching`, доступности модели и доли валидных прогнозных точек.
 
 #### 422 — Ошибка валидации входных данных
 
@@ -458,7 +447,7 @@ pytest -q
   "status": 422,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
+  "object_ref": "...",
   "message": "Incorrect data in the dataset from archives.",
   "quality": 12
 }
@@ -473,7 +462,7 @@ pytest -q
   "status": 422,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
+  "object_ref": "...",
   "message": "Model launch aborted: no input data received from archives."
 }
 ```
@@ -485,7 +474,7 @@ pytest -q
   "status": 422,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
+  "object_ref": "...",
   "message": "Forecast execution error: {текст ошибки}"
 }
 ```
@@ -497,7 +486,7 @@ pytest -q
   "status": 500,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
+  "object_ref": "...",
   "message": "Internal server error: {текст ошибки}"
 }
 ```
@@ -509,14 +498,14 @@ pytest -q
   "status": 503,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
+  "object_ref": "...",
   "message": "HISTORICAL_DATA is not available, so it is impossible to take values ​​at this time."
 }
 ```
 
 Для сервиса ремонтов (CMMS) применяется тот же шаблон ошибки недоступности. В части текущего кода и старой документации этот источник ещё может называться `RZ`.
 
-> ⚠️ **ПРОТИВОРЕЧИЕ #8** — `MESSAGES.md` для всех ответов типа 422/500/503 показывает ключ `"fp_path"`. В коде везде используется **`"object_reference"`**.
+> ⚠️ **ПРОТИВОРЕЧИЕ #8** — `MESSAGES.md` для всех ответов типа 422/500/503 показывает ключ `"fp_path"`. В коде везде используется **`"object_ref"`**.
 
 ---
 
@@ -530,9 +519,9 @@ pytest -q
 
 **Жизненный цикл задачи:**
 
-1. Клиент делает 1-й POST → `api_predict.kiq(data)` → задача в очереди Redis Stream
+1. Клиент делает `GET /predict/{model_id}` → `api_predict.kiq(data)` → задача в очереди Redis Stream
 2. Worker подхватывает задачу → выполняет `predict_logic(...)` → записывает в Redis
-3. Клиент делает 2-й POST → `is_result_ready(task_id)` → если готово → `get_result(task_id)`
+3. Клиент делает `GET /tasks/{task_id}` → `is_result_ready(task_id)` → если готово → `get_result(task_id)`
 
 > ⚠️ **ПРОТИВОРЕЧИЕ #9 (критическое)** — В `broker/tasks/predict.py` **вызов НДЦ закомментирован**:
 > ```python
@@ -590,7 +579,7 @@ local/models/
 - Файл: `src/api/send/archives.py`
 - Функции: `get_data_from_arvhives` (публичная), `send_ndc_url`, `extract_data`
 - Адреса: `HISTORICAL_DATA_URLS` из `config.py`
-- Формат ответа: `[timestamps_array, values_array, qds_array]`
+- Формат ответа: `[timestamps_array, values_array]`
 
 ### CMMS (ремонтные данные)
 
@@ -635,13 +624,13 @@ ls /tmp/model_artifacts/bundle
 
 | №  | Источник                      | Что написано в документации             | Что в коде / как есть                     | Статус        |
 |----|-------------------------------|-----------------------------------------|-------------------------------------------|---------------|
-| 1  | `MAIN.md`, `PREDICT.md`       | Поле `fp_path` в запросе                | Переименовано в `object_reference`        | ✅ Исправлено |
+| 1  | `MAIN.md`, `PREDICT.md`       | Поле `fp_path` в запросе                | Переименовано в `object_ref`        | ✅ Исправлено |
 | 2  | `MAIN.md`, `PREDICT.md`       | Поле `model_path` в запросе             | Переименовано в `model_id`                | ✅ Исправлено |
-| 3  | `PREDICT.md`, `MAIN.md`       | Поле `version` (обязательное)           | Публичный selector теперь вынесен в `model_selection.version` / `model_selection.version_alias` | ✅ Исправлено |
+| 3  | `PREDICT.md`, `MAIN.md`       | Поле `version` (обязательное)           | Публичный selector теперь задается query-полем `version_alias` | ✅ Исправлено |
 | 4  | `PREDICT.md`                  | `archives`, `step` и др. — в запросе   | Перенесены в MLflow runtime bundle config | ✅ Исправлено |
-| 5  | `MESSAGES.md`                 | Ключ `"fp_path"` в ответах              | Ключ `"object_reference"`                 | ✅ Исправлено |
-| 6  | `MAIN.md` (пример 200-ответа) | `model_confidence` — значимая метрика   | Всегда `1.0`, логика не реализована       | ⚠️ Открыто   |
-| 7  | `broker/tasks/predict.py`     | Описан поток с НДЦ                      | Вызов НДЦ **временно** закомментирован    | ⏳ Временно   |
+| 5  | `MESSAGES.md`                 | Ключ `"fp_path"` в ответах              | Ключ `"object_ref"`                 | ✅ Исправлено |
+| 6  | `MAIN.md` (пример 200-ответа) | `model_confidence` — значимая метрика   | Вычисляется в runtime (`[0.0, 1.0]`)      | ✅ Исправлено |
+| 7  | `broker/tasks/predict.py`     | Runtime-поток исторических данных активен через canonical env | `_get_historical_data_payload` вызывается, используются `HISTORICAL_DATA_URLS/HISTORICAL_DATA_URL/SCADA_URL` | ✅ Исправлено |
 | 8  | Вся документация              | Режимы: `day` / `month` / `year`        | Переименованы: `short` / `medium` / `long`| ✅ Исправлено |
 | 9  | Вся документация              | Тип модели `"sbre"` / класс `SbreModel` | Удалены из кода                           | ✅ Исправлено |
 

@@ -8,15 +8,18 @@
 - **200**: Хорошо
 - **202**: Принято (_2 варианта_)
 - **404**: Не найдено
-- **422**: Необрабатываемый экземпляр (_3 варианта_)
+- **422**: Необрабатываемый экземпляр (_7 вариантов_)
 - **500**: Внутренняя ошибка сервера
-- **503**: Сервис недоступен (_2 варианта_)
+- **503**: Сервис недоступен (_2 формата, 5 источников_)
 
 ---
 
 ## 200: Хорошо
 
 `data` любой тип данных
+
+Для predict-flow в успешном `data` может присутствовать поле `model_confidence`.
+Текущее поведение: значение вычисляется в диапазоне `[0.0, 1.0]` на основе `is_matching` и полноты выходного ряда.
 
 ```json
 {
@@ -40,7 +43,7 @@
   "status": 202,
   "state": "start",
   "task_id": "...",
-  "object_reference": "..."
+  "object_ref": "..."
 }
 ```
 
@@ -94,9 +97,8 @@
   "status": 422,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
-  "message": "Incorrect data in the dataset from archives.",
-  "quality": ...
+  "object_ref": "...",
+  "message": "Incorrect data in the dataset from archives."
 }
 ```
 
@@ -109,8 +111,66 @@
   "status": 422,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
+  "object_ref": "...",
   "message": "Forecast execution error: {сообщение от ошибки из кода}"
+}
+```
+
+### Вариант 4
+
+Возникнет, когда данные не понравились при обработке данных погоды
+
+```json
+{
+  "status": 422,
+  "state": "done",
+  "task_id": "...",
+  "object_ref": "...",
+  "message": "Incorrect data in the dataset from weather service.",
+  "details": "{опционально: сообщение от ошибки из кода}"
+}
+```
+
+### Вариант 5
+
+Возникнет, когда данные не понравились при обработке historical_data
+
+```json
+{
+  "status": 422,
+  "state": "done",
+  "task_id": "...",
+  "object_ref": "...",
+  "message": "Incorrect data in the dataset from HISTORICAL_DATA.",
+  "details": "{опционально: сообщение от ошибки из кода}"
+}
+```
+
+### Вариант 6
+
+Возникнет, когда отсутствует `config.json` для `model_id`
+
+```json
+{
+  "status": 422,
+  "state": "done",
+  "task_id": "...",
+  "object_ref": "...",
+  "message": "Model launch aborted: config.json not found for model '{model_id}'."
+}
+```
+
+### Вариант 7
+
+Возникнет, когда модель не получила входные данные из архивов
+
+```json
+{
+  "status": 422,
+  "state": "done",
+  "task_id": "...",
+  "object_ref": "...",
+  "message": "Model launch aborted: no input data received from archives."
 }
 ```
 
@@ -123,7 +183,7 @@
   "status": 500,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
+  "object_ref": "...",
   "message": "Internal server error: {сообщение от ошибки из кода}"
 }
 ```
@@ -134,29 +194,29 @@
 
 ### Вариант 1
 
-Не связался с сервисом НДЦ, ремонтных заявок или MLflow
+Не связался с внешним сервисом (NDC, RZ, WEATHER, HISTORICAL_DATA, MLFLOW)
 
 ```json
 {
   "status": 503,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
-  "message": "{NDC, RZ или MLFLOW} is not available, so it is impossible to take values at this time."
+  "object_ref": "...",
+  "message": "{NDC, RZ, WEATHER, HISTORICAL_DATA или MLFLOW} is not available, so it is impossible to take values at this time."
 }
 ```
 
 ### Вариант 2
 
-Не связался с сервисом НДЦ, ремонтных заявок или MLflow и добавил сообщение из кода
+Не связался с внешним сервисом (NDC, RZ, WEATHER, HISTORICAL_DATA, MLFLOW) и добавил сообщение из кода
 
 ```json
 {
   "status": 503,
   "state": "done",
   "task_id": "...",
-  "object_reference": "...",
-  "message": "{NDC, RZ или MLFLOW} is not available, so it is impossible to take values at this time. Error: {сообщение от ошибки из кода}"
+  "object_ref": "...",
+  "message": "{NDC, RZ, WEATHER, HISTORICAL_DATA или MLFLOW} is not available, so it is impossible to take values at this time. Error: {сообщение от ошибки из кода}"
 }
 ```
 

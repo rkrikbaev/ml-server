@@ -7,11 +7,10 @@
 | **forecast** | date.py       | get_full_days_mask     | ✅                           |
 |              |               | get_weekday            | ✅                           |
 |              |               |                        |                              |
-|              | enums.py      | QDS                    | ✅                           |
-|              |               | Threshold              | ✅                           |
+|              | enums.py      | Threshold              | ✅                           |
 |              |               |                        |                              |
-|              | evaluation.py | count_input_qds        | ✅                           |
-|              |               | evaluate_input_quality | ✅                           |
+|              | evaluation.py | count_input_health     | ✅                           |
+|              |               | evaluate_input_health  | ✅                           |
 |              |               |                        |                              |
 |              | inference.py  | predict_default        | ✅                           |
 |              |               | predict                | ✅                           |
@@ -32,17 +31,16 @@
 
 Лежат функции для работы с enum-ами
 
-1. QDS (classs)
-2. Threshold (class)
+1. Threshold (class)
 
 ---
 
 ### evaluation.py
 
-Лежат функции для оценки QDS
+Лежат функции для оценки здоровья входных рядов
 
-1. count_input_qds
-2. evaluate_input_quality
+1. count_input_health
+2. evaluate_input_health
 
 ---
 

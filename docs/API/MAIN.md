@@ -5,59 +5,46 @@
 
 ## Список запросов
 
-- [predict](#1-predict) - **POST**
+- [predict/{model_id}](#1-predict) - **GET**
+- [tasks/{task_id}](#2-taskstask_id) - **GET**
 
 ## 1. predict
 
-Первый запрос регистрируется в брокере и отправляется в очередь worker. Для offline-модели worker разрешает `model_id` через MLflow Registry по alias/version. В ответ сервер возвращает статус `START` и `task_id`. Пока worker не завершил обработку, повторный запрос с этим `task_id` будет возвращать статус `PROCESSING`. После завершения задачи сервер возвращает результат со статусом `DONE`.
+Запрос регистрируется в брокере и отправляется в очередь worker. Для offline-модели worker разрешает `model_id` через MLflow Registry по alias/version. В ответ сервер возвращает статус `START` и `task_id`. Дальнейший опрос результата выполняется отдельным endpoint `GET /tasks/{task_id}`.
 
 <img alt="Date of Creation" src="https://img.shields.io/badge/Date%20of%20Creation-20%3F%3F.%3F%3F.%3F%3F,%20%3F%3F:%3F%3F%20%3FM-1565c0?style=for-the-badge" />
-<img alt="URL" src="https://img.shields.io/badge/URL-/predict-a00069?style=for-the-badge" />
-<img alt="Method" src="https://img.shields.io/badge/Method-POST-00695c?style=for-the-badge" />
+<img alt="URL" src="https://img.shields.io/badge/URL-/predict/{model_id}-a00069?style=for-the-badge" />
+<img alt="Method" src="https://img.shields.io/badge/Method-GET-00695c?style=for-the-badge" />
 
-### Content-Type
+### Query параметры
 
-- <img alt="input" src="https://img.shields.io/badge/input-application/json;-4527a0?style=flat-square" />
-- <img alt="output" src="https://img.shields.io/badge/output-application/json;-4527a0?style=flat-square" />
+- `model_id` (path, required)
+- `version_alias` (query, optional, default: `Production`)
+- `object_ref` (query, optional)
 
 ### HTTP статусы, которые могут быть возвращены
 
-- 200 - успешный ответ
-- 202 - запрос принят, но ещё не обработан; запрос в процессе обработки; ответ удалён
-- 422 - некорректный запрос или ответ
-- 500 - что-то пошло не так
-- 503 - недоступен внешний сервис данных или MLflow Registry/bundle
+- 202 - запрос принят и поставлен в обработку
+- 422 - некорректный запрос
 
-### Входящие данные
+### Параметры запроса
 
 > Подробнее об [ключах и валидации](./schema/PREDICT.md) API
 
-#### Пример 1-ого запроса
+#### Пример GET-запроса
 
-- **object_reference** - путь к FP объекту
+- **object_ref** - путь к FP объекту клиента
 - **model_id** - модель, которая нужна из прогнозов
-- **model_selection.version_alias** - alias в MLflow Registry, например `Production`
-- **model_selection.version** - конкретная версия модели в MLflow Registry
 
-```json
-{
-    "object_reference": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
-    "model_id": "prophet/watt/h/AKMOLA/@regions/Akmola/load",
-    "model_selection": {
-      "version_alias": "Production"
-    }
-}
+```http
+GET /predict/prophet_watt_h_AKMOLA_@regions_Akmola_load?version_alias=Production&object_ref=/KAZ/AKMOLA/AKMOLA/@models/P_WATT
 ```
 
-#### Пример 2-ого запроса
+Пояснение к примеру:
 
-- **task_id** - UUID задачи (сам генерируется после запроса 1)
-
-```json
-{
-  "task_id": "5c852360dce04d399eeaaedd947459ba"
-}
-```
+- `model_id` передается в path (`/predict/{model_id}`)
+- `version_alias` передается в query
+- `object_ref` передается в query
 
 ### Выходящие данные
 
@@ -68,18 +55,65 @@
 Для данного примера напичкали данные от фонаря, поэтому в серьёз не принимайте за чистую монету, пожалуйста
 ```json
 {
+  "status": 202,
+  "object_ref": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
+  "task_id": "f3b44ac9720f40108ad16def9f300b4e",
+  "state": "start"
+}
+```
+
+## 2. tasks/{task_id}
+
+Опрос статуса и результата ранее созданной задачи по `task_id`.
+
+<img alt="URL" src="https://img.shields.io/badge/URL-/tasks/{task_id}-a00069?style=for-the-badge" />
+<img alt="Method" src="https://img.shields.io/badge/Method-GET-00695c?style=for-the-badge" />
+
+### Content-Type
+
+- <img alt="output" src="https://img.shields.io/badge/output-application/json;-4527a0?style=flat-square" />
+
+### HTTP статусы, которые могут быть возвращены
+
+- 202 - задача еще обрабатывается
+- 200 - задача успешно завершена
+- 422 - ошибка данных/прогноза
+- 500 - внутренняя ошибка сервера
+- 503 - недоступен внешний сервис
+
+### Параметры
+
+- **task_id** - UUID задачи из ответа `GET /predict/{model_id}`
+
+### Пример ответа при обработке
+
+```json
+{
+  "status": 202,
+  "task_id": "f3b44ac9720f40108ad16def9f300b4e",
+  "state": "processing"
+}
+```
+
+### Пример финального успешного ответа
+
+```json
+{
   "status": 200,
+  "state": "done",
+  "task_id": "f3b44ac9720f40108ad16def9f300b4e",
+  "object_ref": "/KAZ/AKMOLA/AKMOLA/@models/P_WATT",
   "data": {
     "message": "...",
     "output": [
-      [0, 0.0, 0],
-      ...
+      [1746900000, 312.4],
+      [1746903600, 314.1]
     ],
-    "quality": 0,
     "model_confidence": 1.0
-  },
-  "object_reference": "root/FP/PROJECT/KAZ/AKMOLA/@regions/Akmola",
-  "task_id": "f3b44ac9720f40108ad16def9f300b4e",
-  "state": "done"
+  }
 }
 ```
+
+Примечание по `model_confidence`:
+- Поле вычисляется в диапазоне `[0.0, 1.0]`.
+- На confidence влияют `is_matching`, доступность модели и доля валидных (не `NaN`) прогнозных точек.

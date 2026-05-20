@@ -58,7 +58,7 @@ Added exports:
 ### Data Extraction
 ```python
 # Single parameter extraction
-timestamps, values, qds = extract_weather_data(
+timestamps, values = extract_weather_data(
     measurements,
     parameter="temperature",
     interpolate=True
@@ -141,7 +141,7 @@ Defaults:
 from api.collector.logic.weather import generate_synthetic_weather_data
 
 # Generate test data
-timestamps, weather_data, qds = generate_synthetic_weather_data(
+timestamps, weather_data = generate_synthetic_weather_data(
     mode="short",
     step=3600000,  # 1 hour
     station_code="TEST_STATION"
@@ -191,20 +191,13 @@ with patch("api.send.http_client.get_weather_client", return_value=mock_client):
       "pressure": 1013.2,
       "precipitation": 0,
       "cloud_cover": 45,
-      "solar_radiation": 250,
-      "qds": 0
+      "solar_radiation": 250
     },
     ...
   ],
   "ALMATY_01": [...]
 }
 ```
-
-## Quality Descriptors (QDS)
-- `0` - Good quality data
-- `1` - Interpolated/estimated data
-- `2` - Missing data
-- `3+` - Other quality issues
 
 ## Error Handling
 
