@@ -181,7 +181,13 @@ def _normalize_sources_config(raw_config: Dict[str, Any]) -> Dict[str, Any]:
     def normalize_source_entry(source_name: str, source_payload: Dict[str, Any]) -> Dict[str, Any]:
         normalized_source: Dict[str, Any] = {}
 
-        source_type = source_payload.get("type") or source_name
+        # Infer type from pattern when not explicit
+        # e.g. {"url": "...", "parameters": [...], "pattern": "historical"}
+        _pattern = str(source_payload.get("pattern") or "").lower()
+        _HISTORICAL_PATTERNS = {"historical", "historic"}
+        source_type = source_payload.get("type") or (
+            "historical" if _pattern in _HISTORICAL_PATTERNS else source_name
+        )
         if source_type is not None:
             normalized_source["type"] = source_type
 
@@ -196,6 +202,14 @@ def _normalize_sources_config(raw_config: Dict[str, Any]) -> Dict[str, Any]:
             request_payload = source_payload.get("request_body")
         if isinstance(request_payload, dict):
             normalized_source["request"] = dict(request_payload)
+
+        # Map top-level "parameters" list → request.archive
+        # Format: {"url": "...", "parameters": ["/path/to/archive"], "pattern": "historical"}
+        parameters = source_payload.get("parameters")
+        if isinstance(parameters, list) and parameters:
+            if "request" not in normalized_source:
+                normalized_source["request"] = {}
+            normalized_source["request"].setdefault("archive", parameters)
 
         location_payload = source_payload.get("location")
         if isinstance(location_payload, dict):
