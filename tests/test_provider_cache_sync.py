@@ -13,7 +13,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from api.forecast.provider import ModelProvider  # type: ignore[import-not-found]
+from adapters.provider import ModelProvider
 
 
 @dataclass

@@ -15,7 +15,7 @@ from api.data.predict import PredictCreateSchema
 def test_predict_selector_defaults_to_production() -> None:
     payload = PredictCreateSchema(
         model_id="prophet_watt_h_AKMOLA_test",
-        client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
+        object_ref="/KAZ/AKMOLA/@models/P_WATT",
     )
     assert payload.selector == "Production"
 
@@ -23,28 +23,27 @@ def test_predict_selector_defaults_to_production() -> None:
 def test_predict_selector_uses_alias() -> None:
     payload = PredictCreateSchema(
         model_id="prophet_watt_h_AKMOLA_test",
-        client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
-        model_selection={"version_alias": "champion"},
+        object_ref="/KAZ/AKMOLA/@models/P_WATT",
+        version_alias="champion",
     )
     assert payload.selector == "champion"
 
 
-def test_predict_selector_uses_version() -> None:
+def test_predict_selector_accepts_custom_alias() -> None:
     payload = PredictCreateSchema(
         model_id="prophet_watt_h_AKMOLA_test",
-        client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
-        model_selection={"version": "17"},
+        object_ref="/KAZ/AKMOLA/@models/P_WATT",
+        version_alias="17",
     )
     assert payload.selector == "17"
 
 
-def test_predict_selector_rejects_alias_and_version_together() -> None:
+def test_predict_selector_rejects_empty_object_ref() -> None:
     try:
         PredictCreateSchema(
             model_id="prophet_watt_h_AKMOLA_test",
-            client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
-            model_selection={"version": "17", "version_alias": "champion"},
+            object_ref="",
         )
     except ValidationError:
         return
-    raise AssertionError("Expected ValidationError when both version and version_alias are set")
+    raise AssertionError("Expected ValidationError for empty object_ref")

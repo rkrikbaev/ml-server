@@ -32,7 +32,7 @@ def test_record_task_created_uses_model_type_from_config(monkeypatch, tmp_path) 
 
     task_monitor.record_task_created(
         task_id="task-model-id-opaque",
-        client_object_ref="/KAZ/AKMOLA/@models/P_WATT",
+        object_ref="/KAZ/AKMOLA/@models/P_WATT",
         model_id=model_id,
     )
 

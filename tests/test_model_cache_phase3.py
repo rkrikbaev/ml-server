@@ -11,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from api.forecast import model as model_module  # type: ignore[import-not-found]
+from adapters import model as model_module
 
 
 def test_cache_infrastructure_exists():
@@ -46,7 +46,7 @@ def test_cache_hit_on_repeated_prophet_calls():
     model_module._CACHE_STATS["hits"] = 0
     model_module._CACHE_STATS["misses"] = 0
     
-    with patch('api.forecast.model.ProphetAdapter') as mock_prophet:
+    with patch('adapters.model.ProphetAdapter') as mock_prophet:
         mock_instance = MagicMock()
         mock_prophet.return_value = mock_instance
         
