@@ -1,15 +1,123 @@
-version: "3"
 services:
   model-server:
-    # Note that the path of the Dockerfile and context is relative to the *primary*
-    # docker-compose.yml file (the first in the devcontainer.json "dockerComposeFile"
-    # array). The sample below assumes your primary file is in the root of your project.
-    image: ml:latest
+    image: fpcloud/ml:1.0.0
+    build:
+      context: .
+      dockerfile: ./docker/Dockerfile
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    container_name: models_${MODEL:-models}
+    restart: unless-stopped
+    command: >
+      bash -c "
+        taskiq worker api.broker:broker --workers 8 &
+        python -u -m uvicorn api.server:app --host 0.0.0.0 --port 8030 &
+        wait -n
+      "
     ports:
-      - 8010:8000
-    command: python3 -m uvicorn server:app --host 0.0.0.0 --port 8000
+      - "${PORT:-8030}:8030"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TEST_MODE=true
+      - SCADA_STUB_ENABLED=${SCADA_STUB_ENABLED:-false}
+      - HISTORICAL_DATA_STUB_ENABLED=${HISTORICAL_DATA_STUB_ENABLED:-false}
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_REGISTRY_URI=http://mlflow:5000
+      - MLFLOW_DEFAULT_ALIAS=Production
+      - MODEL_REGISTRY_CACHE_MAX=3
+      - MODEL_REGISTRY_CACHE_DIR=/tmp/local_models_cache
+    volumes:
+      - "./src:/workspace/server"
+      - "model_registry_cache:/tmp/local_models_cache"
+    depends_on:
+      - redis
+      - mlflow
     deploy:
       resources:
         limits:
-          memory: 8g
-          cpus: '0.1'
+          cpus: '8'
+          memory: 1024M
+    tty: true
+    stdin_open: true
+    networks:
+      - ml
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ml
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: mlflow
+    restart: unless-stopped
+    # Run the MLflow tracking server explicitly. The upstream image's default
+    # CMD may not start the server (it can default to `python3`), causing the
+    # container to exit with code 0. Provide an explicit command so the
+    # container stays running and serves the UI on the mapped port.
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:////mlflow/mlflow.db --serve-artifacts --artifacts-destination /mlflow/mlruns --allowed-hosts mlflow,mlflow:5000,localhost,localhost:5050,127.0.0.1,127.0.0.1:5050,host.docker.internal
+    ports:
+      - "${MLFLOW_PORT:-5050}:5000"
+    volumes:
+      - "../local/mlruns:/mlflow/mlruns"
+      - "mlflow_data:/mlflow"
+    networks:
+      - ml
+
+  jupyter-notebook-server:
+    image: jupyter/scipy-notebook:python-3.11
+    container_name: jupyter_notebook_server
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    user: root
+    working_dir: /workspace
+    command: >
+      bash -lc "start-notebook.py
+      --ServerApp.ip=0.0.0.0
+      --ServerApp.port=8888
+      --no-browser
+      --ServerApp.allow_remote_access=True
+      --ServerApp.token=${JUPYTER_TOKEN:-ml-notebook}
+      --ServerApp.password=${JUPYTER_PASSWORD_HASH:-}"
+    ports:
+      - "${JUPYTER_BIND_ADDRESS:-0.0.0.0}:${JUPYTER_PORT:-8888}:8888"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_REGISTRY_URI=http://mlflow:5000
+      - MLFLOW_DEFAULT_ALIAS=Production
+      - ML_SERVER_PREDICT_URL=http://model-server:8030/predict
+      - MODELS_PATH=/workspace/models
+    volumes:
+      - "../local/${MODEL:-models}:/workspace/models"
+      - "../local/mlruns:/mlflow/mlruns"
+      - "./procedures:/workspace/procedures"
+      - "../study:/workspace/study"
+    depends_on:
+      - mlflow
+      - redis
+    tty: true
+    stdin_open: true
+    networks:
+      - ml
+
+networks:
+  ml:
+    driver: bridge
+
+volumes:
+  redis_data:
+  model_registry_cache:
+  mlflow_data:
