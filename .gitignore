@@ -17,3 +17,6 @@ tests/fixtures/test_data/sample.csv
 mlruns/
 mlflow.db
 procedures/workflow/exports/
+*.tar.gz
+*.zip
+*.tar
