@@ -1,0 +1,33 @@
+{
+  "model_type": "wind",
+  "fallback": "naive",
+  "step": 3600,
+  "input_range": 168,
+  "output_range": 24,
+  "sources": {
+    "historical_data": {
+      "type": "historical_data",
+      "url": "http://scada-host/api/v1/read/archives",
+      "request": {
+        "archive": ["/WIND/STATION_1/P_WATT"]
+      }
+    },
+    "weather": {
+      "type": "weather",
+      "url": "http://weather-service/api/v1/forecast",
+      "location": {
+        "latitude": 51.18,
+        "longitude": 71.45
+      },
+      "hours": 24,
+      "request": {
+        "units": "metric",
+        "variables": [
+          "wind_speed",
+          "wind_direction",
+          "temperature"
+        ]
+      }
+    }
+  }
+}
