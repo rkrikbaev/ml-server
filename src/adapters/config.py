@@ -61,7 +61,7 @@ class ModelConfig(BaseModel):
     @field_validator("fallback")
     @classmethod
     def check_fallback(cls, v: str) -> str:
-        allowed = {"none", "naive", "ar", "prophet", "xgb"}
+        allowed = {"none", "naive", "ar", "prophet", "xgb", "solar", "wind"}
         normalized = str(v).strip().lower()
         if normalized in {"", "false", "null"}:
             normalized = "none"
@@ -72,7 +72,7 @@ class ModelConfig(BaseModel):
     @field_validator("model_type")
     @classmethod
     def check_model_type(cls, v: str) -> str:
-        allowed = {"xgb", "prophet", "naive", "ar"}
+        allowed = {"xgb", "prophet", "naive", "ar", "solar", "wind"}
         normalized = str(v).strip().lower()
         if normalized not in allowed:
             raise ValueError(f"'model_type' must be one of: {', '.join(sorted(allowed))}")

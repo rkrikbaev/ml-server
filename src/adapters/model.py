@@ -7,7 +7,7 @@ from prophet import Prophet
 from pathlib import Path
 
 from adapters.base_interface import BaseModel
-from adapters.adapters import ARAdapter, NaiveAdapter, ProphetAdapter, XGBoostAdapter
+from adapters.adapters import ARAdapter, LinearRegressionAdapter, NaiveAdapter, ProphetAdapter, SolarAdapter, WindAdapter, XGBoostAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def _normalize_model_type(model_type: Optional[str]) -> str:
     normalized = str(model_type or "").strip().lower()
     if normalized in {"", "null"}:
         raise ValueError("model_type must be provided in model config")
-    if normalized in {"xgb", "prophet", "naive", "ar"}:
+    if normalized in {"xgb", "prophet", "naive", "ar", "solar", "wind", "lr"}:
         return normalized
     raise ValueError(f"Unsupported model_type: {model_type}")
 
@@ -78,6 +78,12 @@ def _build_fallback_model(fallback: str) -> Optional[BaseModel]:
         return ProphetAdapter(model_name="prophet_fallback")
     if fallback == "xgb":
         return XGBoostAdapter(model_name="xgb_fallback")
+    if fallback == "solar":
+        return SolarAdapter(model_name="solar_fallback")
+    if fallback == "wind":
+        return WindAdapter(model_name="wind_fallback")
+    if fallback == "lr":
+        return LinearRegressionAdapter(model_name="lr_fallback")
     raise ValueError(f"Unsupported fallback model: {fallback}")
 
 
@@ -252,6 +258,162 @@ def init_model(
                             logger.error(
                                 "Failed to load XGBoost model: %s; using configured fallback '%s'",
                                 e,
+                                fallback,
+                            )
+                            model = fallback_model
+
+                elif model_type == "solar":
+                    logger.info(f"Loading Solar (XGBoost) model from {model_dirpath}")
+                    model_filepath = model_dirpath / "xgb_model.json"
+
+                    if not model_filepath.is_file():
+                        fallback_model = _build_fallback_model(fallback)
+                        if fallback_model is None:
+                            raise FileNotFoundError(
+                                f"Solar model file not found and fallback disabled: {model_filepath}"
+                            )
+                        logger.warning(
+                            "Solar model file not found: %s; using configured fallback '%s'",
+                            model_filepath,
+                            fallback,
+                        )
+                        model = fallback_model
+                    else:
+                        try:
+                            import json as _json
+                            import xgboost as xgb
+
+                            with open(model_filepath, "r") as f:
+                                manifest = _json.load(f)
+
+                            step_files = manifest.get("steps", [])
+                            models_dict: dict = {}
+                            for step_file in step_files:
+                                booster_path = model_dirpath / step_file
+                                booster = xgb.Booster()
+                                booster.load_model(str(booster_path))
+                                step_num = int(step_file.split("_")[-1].split(".")[0])
+                                models_dict[step_num] = booster
+
+                            if not models_dict:
+                                raise ValueError("No step files found in solar model manifest")
+
+                            model = SolarAdapter(model_name="solar_model", legacy_model=models_dict)
+                            model.load()
+                            logger.info(
+                                "Solar model loaded: %d step boosters, features=%d",
+                                len(models_dict),
+                                models_dict[sorted(models_dict)[0]].num_features(),
+                            )
+
+                        except Exception as exc:
+                            fallback_model = _build_fallback_model(fallback)
+                            if fallback_model is None:
+                                raise
+                            logger.error(
+                                "Failed to load Solar model: %s; using configured fallback '%s'",
+                                exc,
+                                fallback,
+                            )
+                            model = fallback_model
+
+                elif model_type == "wind":
+                    logger.info(f"Loading Wind (XGBoost) model from {model_dirpath}")
+                    model_filepath = model_dirpath / "xgb_model.json"
+
+                    if not model_filepath.is_file():
+                        fallback_model = _build_fallback_model(fallback)
+                        if fallback_model is None:
+                            raise FileNotFoundError(
+                                f"Wind model file not found and fallback disabled: {model_filepath}"
+                            )
+                        logger.warning(
+                            "Wind model file not found: %s; using configured fallback '%s'",
+                            model_filepath,
+                            fallback,
+                        )
+                        model = fallback_model
+                    else:
+                        try:
+                            import json as _json
+                            import xgboost as xgb
+
+                            with open(model_filepath, "r") as f:
+                                manifest = _json.load(f)
+
+                            step_files = manifest.get("steps", [])
+                            models_dict: dict = {}
+                            for step_file in step_files:
+                                booster_path = model_dirpath / step_file
+                                booster = xgb.Booster()
+                                booster.load_model(str(booster_path))
+                                step_num = int(step_file.split("_")[-1].split(".")[0])
+                                models_dict[step_num] = booster
+
+                            if not models_dict:
+                                raise ValueError("No step files found in wind model manifest")
+
+                            model = WindAdapter(model_name="wind_model", legacy_model=models_dict)
+                            model.load()
+                            logger.info(
+                                "Wind model loaded: %d step boosters, features=%d",
+                                len(models_dict),
+                                models_dict[sorted(models_dict)[0]].num_features(),
+                            )
+
+                        except Exception as exc:
+                            fallback_model = _build_fallback_model(fallback)
+                            if fallback_model is None:
+                                raise
+                            logger.error(
+                                "Failed to load Wind model: %s; using configured fallback '%s'",
+                                exc,
+                                fallback,
+                            )
+                            model = fallback_model
+
+                elif model_type == "lr":
+                    logger.info("Loading LinearRegression model from %s", model_dirpath)
+                    model_filepath = model_dirpath / "lr_model.pkl"
+
+                    if not model_filepath.is_file():
+                        fallback_model = _build_fallback_model(fallback)
+                        if fallback_model is None:
+                            raise FileNotFoundError(
+                                f"LR model file not found and fallback disabled: {model_filepath}"
+                            )
+                        logger.warning(
+                            "LR model file not found: %s; using configured fallback '%s'",
+                            model_filepath,
+                            fallback,
+                        )
+                        model = fallback_model
+                    else:
+                        try:
+                            import joblib
+
+                            raw = joblib.load(str(model_filepath))
+
+                            # Accept either a plain estimator or a dict of step estimators
+                            if isinstance(raw, dict):
+                                legacy_model = {int(k): v for k, v in raw.items()}
+                            else:
+                                legacy_model = raw
+
+                            model = LinearRegressionAdapter(
+                                model_name="lr_model", legacy_model=legacy_model
+                            )
+                            model.load()
+                            n_steps = len(legacy_model) if isinstance(legacy_model, dict) else 1
+                            logger.info("LR model loaded: %d step(s)", n_steps)
+
+                        except Exception as exc:
+                            fallback_model = _build_fallback_model(fallback)
+                            if fallback_model is None:
+                                raise
+                            logger.error(
+                                "Failed to load LR model: %s; using configured fallback '%s'",
+                                exc,
                                 fallback,
                             )
                             model = fallback_model

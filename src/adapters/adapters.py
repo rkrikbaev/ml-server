@@ -400,6 +400,718 @@ class XGBoostAdapter(BaseModel):
         logger.info(f"XGBoost model prepared with {len(train_data)} data points")
 
 
+class SolarAdapter(BaseModel):
+    """
+    Адаптер для прогнозирования генерации солнечной электростанции.
+
+    Использует XGBoost-модель (тот же формат бандла, что и XGBoostAdapter:
+    манифест ``xgb_model.json`` + пошаговые бустеры), но строит вектор
+    признаков с учётом метеорологических данных из источника ``weather``.
+
+    Структура вектора признаков (должна совпадать с обучением):
+        [lag_1, ..., lag_k,
+         solar_radiation, temperature, cloud_cover,   ← weather (CWS field names)
+         sin_hour, cos_hour, sin_doy, cos_doy]        ← cyclic time
+
+    Количество лагов вычисляется как:
+        k = booster.num_features() - N_WEATHER_FEATURES - N_TIME_FEATURES
+
+    Если модель не загружена, используется нативный fallback на основе
+    масштабирования последнего ненулевого значения по относительной
+    инсоляции (``solar_radiation / 1000``).
+
+    Пример cache_config.json:
+        см. docs/examples/solar_cache_config.json
+    """
+
+    # Weather feature order must match training pipeline.
+    # Field names align with the weather service's SCADA-compatible response format.
+    _WEATHER_KEYS: tuple = ("solar_radiation", "temperature", "cloud_cover")
+    N_WEATHER_FEATURES: int = 3
+    N_TIME_FEATURES: int = 4  # sin_h, cos_h, sin_doy, cos_doy
+
+    def __init__(self, model_name: str = "solar_model", legacy_model: Optional[Any] = None):
+        """
+        Args:
+            model_name: Имя модели.
+            legacy_model: Загруженный dict[int, xgb.Booster] или одиночный Booster.
+        """
+        super().__init__(model_name)
+        self.legacy_model = legacy_model
+        self.model = legacy_model if legacy_model is not None else self
+
+    def load(self) -> None:
+        self.model = self.legacy_model if self.legacy_model is not None else self
+
+    # ------------------------------------------------------------------
+    # Feature engineering
+    # ------------------------------------------------------------------
+
+    def _extract_weather_at_step(
+        self,
+        weather_data: Optional[Dict[str, Any]],
+        step_index: int,
+    ) -> np.ndarray:
+        """Return weather feature array [solar_radiation, temperature, cloud_cover] for forecast step *i*."""
+        defaults = np.zeros(self.N_WEATHER_FEATURES, dtype=float)
+        if not isinstance(weather_data, dict):
+            return defaults
+        hourly = weather_data.get("hourly")
+        if not isinstance(hourly, list) or step_index >= len(hourly):
+            return defaults
+        entry = hourly[step_index]
+        if not isinstance(entry, dict):
+            return defaults
+        return np.array(
+            [float(entry.get(k) or 0.0) for k in self._WEATHER_KEYS],
+            dtype=float,
+        )
+
+    @staticmethod
+    def _cyclic_time_features(forecast_ts_ms: int) -> np.ndarray:
+        """Return [sin_hour, cos_hour, sin_doy, cos_doy] for the given ms timestamp."""
+        dt = datetime.fromtimestamp(forecast_ts_ms / 1000, tz=timezone.utc)
+        hour = float(dt.hour) + float(dt.minute) / 60.0
+        doy = float(dt.timetuple().tm_yday)
+        return np.array(
+            [
+                np.sin(2 * np.pi * hour / 24.0),
+                np.cos(2 * np.pi * hour / 24.0),
+                np.sin(2 * np.pi * doy / 365.0),
+                np.cos(2 * np.pi * doy / 365.0),
+            ],
+            dtype=float,
+        )
+
+    def _build_feature_row(
+        self,
+        series: np.ndarray,
+        step_index: int,
+        forecast_ts_ms: int,
+        weather_data: Optional[Dict[str, Any]],
+        expected_features: int,
+    ) -> np.ndarray:
+        """
+        Build one feature row for a single forecast step.
+
+        Layout: [lags..., weather(3), time(4)]
+        """
+        n_fixed = self.N_WEATHER_FEATURES + self.N_TIME_FEATURES
+        lags = max(expected_features - n_fixed, 1)
+
+        if series.size >= lags:
+            lag_values = series[-lags:].astype(float)
+        elif series.size > 0:
+            pad_val = float(series[-1])
+            lag_values = np.concatenate(
+                [series.astype(float), np.full(lags - series.size, pad_val)]
+            )
+        else:
+            lag_values = np.zeros(lags, dtype=float)
+
+        weather_vec = self._extract_weather_at_step(weather_data, step_index)
+        time_vec = self._cyclic_time_features(forecast_ts_ms)
+
+        row = np.concatenate([lag_values, weather_vec, time_vec])
+
+        # Align to exact expected_features (safety pad/trim)
+        if row.size > expected_features:
+            row = row[-expected_features:]
+        elif row.size < expected_features:
+            row = np.concatenate([row, np.zeros(expected_features - row.size)])
+
+        return row.reshape(1, -1)
+
+    # ------------------------------------------------------------------
+    # Predict
+    # ------------------------------------------------------------------
+
+    def predict(self, input_data: PredictionInput) -> PredictionOutput:
+        """
+        Run solar generation forecast.
+
+        Extracts weather features from ``input_data.metadata["weather_data"]``
+        (list of hourly dicts from the weather source) and combines them with
+        historical generation lags and cyclic time features.
+        """
+        self.validate_input(input_data)
+
+        raw_series = np.asarray(input_data.features, dtype=float).reshape(-1)
+        metadata = input_data.metadata or {}
+        weather_data: Optional[Dict[str, Any]] = metadata.get("weather_data")
+        step_ms = int(metadata.get("step", 3_600_000))
+        output_range = int(metadata.get("output_range", 24))
+
+        raw_ts = metadata.get("timestamps")
+        if isinstance(raw_ts, list) and raw_ts:
+            base_ts = int(raw_ts[-1]) + step_ms
+        else:
+            base_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+        try:
+            if self.legacy_model is not None:
+                import xgboost as xgb
+
+                if isinstance(self.legacy_model, dict):
+                    step_keys = sorted(self.legacy_model.keys())
+                    first_booster = self.legacy_model[step_keys[0]]
+                    expected_features = int(first_booster.num_features())
+
+                    predictions: List[float] = []
+                    for i, step_key in enumerate(step_keys):
+                        forecast_ts = base_ts + i * step_ms
+                        row = self._build_feature_row(
+                            raw_series, i, forecast_ts, weather_data, expected_features
+                        )
+                        dmatrix = xgb.DMatrix(row)
+                        val = float(self.legacy_model[step_key].predict(dmatrix)[0])
+                        predictions.append(max(val, 0.0))
+                    y_pred = np.array(predictions)
+
+                elif isinstance(self.legacy_model, xgb.Booster):
+                    expected_features = int(self.legacy_model.num_features())
+                    predictions = []
+                    for i in range(output_range):
+                        forecast_ts = base_ts + i * step_ms
+                        row = self._build_feature_row(
+                            raw_series, i, forecast_ts, weather_data, expected_features
+                        )
+                        dmatrix = xgb.DMatrix(row)
+                        val = float(self.legacy_model.predict(dmatrix)[0])
+                        predictions.append(max(val, 0.0))
+                    y_pred = np.array(predictions)
+
+                else:
+                    # XGBRegressor / sklearn pipeline
+                    n_feat = int(getattr(self.legacy_model, "n_features_in_", len(raw_series)))
+                    predictions = []
+                    for i in range(output_range):
+                        forecast_ts = base_ts + i * step_ms
+                        row = self._build_feature_row(
+                            raw_series, i, forecast_ts, weather_data, n_feat
+                        )
+                        val = float(self.legacy_model.predict(row)[0])
+                        predictions.append(max(val, 0.0))
+                    y_pred = np.array(predictions)
+
+            else:
+                # No model file — irradiance-scaled naive fallback
+                y_pred = self._irradiance_naive(raw_series, weather_data, output_range)
+
+            logger.info(
+                "Solar prediction: %d values, weather=%s",
+                len(y_pred),
+                "yes" if weather_data is not None else "no",
+            )
+
+            return PredictionOutput(
+                predictions=y_pred.tolist(),
+                metadata={
+                    "model_type": "solar",
+                    "weather_used": weather_data is not None,
+                    "output_range": output_range,
+                },
+            )
+
+        except Exception as exc:
+            logger.error("Solar prediction failed: %s", exc)
+            raise ValueError(f"Solar prediction error: {exc}")
+
+    def _irradiance_naive(
+        self,
+        series: np.ndarray,
+        weather_data: Optional[Dict[str, Any]],
+        output_range: int,
+    ) -> np.ndarray:
+        """
+        Fallback when no model is loaded.
+
+        Scales the last known non-zero generation value by relative GHI
+        (solar_radiation / 1000 W/m²) at each forecast step.
+        """
+        nonzero = series[series > 0]
+        last_val = float(nonzero[-1]) if nonzero.size > 0 else 0.0
+
+        predictions: List[float] = []
+        for i in range(output_range):
+            if isinstance(weather_data, dict):
+                hourly = weather_data.get("hourly")
+                if isinstance(hourly, list) and i < len(hourly):
+                    entry = hourly[i]
+                    ghi = float((entry or {}).get("solar_radiation", 0.0) or 0.0)
+                    scale = min(ghi / 1000.0, 1.0)
+                    predictions.append(last_val * scale)
+                    continue
+            predictions.append(np.nan)
+
+        return np.array(predictions, dtype=float)
+
+    def train(self, train_data: List[float], timestamps: Optional[List[str]] = None) -> None:
+        """Solar models are trained offline in notebooks; this is a no-op."""
+        logger.info("SolarAdapter: training is offline-only (%d pts provided)", len(train_data))
+
+
+class LinearRegressionAdapter(BaseModel):
+    """
+    Адаптер для линейной регрессии (sklearn LinearRegression или совместимых estimators).
+
+    Поддерживает два формата сохранённых моделей:
+
+    1. **Пошаговый (multi-step)** — ``dict[int, estimator]``, где ключ — номер шага
+       прогноза (0-based).  Загружается из ``lr_model.pkl`` как ``{"steps": [estimator_0, ...]}``.
+
+    2. **Одиночный** — один scikit-learn estimator, возвращающий скаляр или вектор.
+
+    Вектор признаков строится по той же схеме, что и в ``XGBoostAdapter``:
+    ``[lag_1, ..., lag_k, sin_hour, cos_hour, sin_dow, cos_dow]``
+    (4 цикличных временны́х признака).  Количество лагов вычисляется как
+    ``n_features_in_ - 4``; при отсутствии атрибута берутся все исторические значения.
+
+    Если модель не загружена, используется линейный тренд по последним точкам истории
+    (простой fallback, аналогичный ``_predict_prophet_simple``).
+
+    Пример cache_config.json::
+
+        "model_type": "lr"
+
+    Файл модели ожидается по пути ``bundle/model/lr_model.pkl``.
+    """
+
+    def __init__(self, model_name: str = "lr_model", legacy_model: Optional[Any] = None):
+        """
+        Args:
+            model_name: Имя модели.
+            legacy_model: Загруженный dict[int, estimator] или одиночный sklearn estimator.
+        """
+        super().__init__(model_name)
+        self.legacy_model = legacy_model
+        self.model = legacy_model if legacy_model is not None else self
+
+    def load(self) -> None:
+        """Mark adapter as loaded."""
+        self.model = self.legacy_model if self.legacy_model is not None else self
+
+    # ------------------------------------------------------------------
+    # Feature engineering (mirrors XGBoostAdapter logic)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_feature_vector(
+        series: np.ndarray,
+        expected_features: int,
+        metadata: Optional[Dict[str, Any]],
+    ) -> np.ndarray:
+        """Build [lags..., sin_h, cos_h, sin_dow, cos_dow] feature vector."""
+        if expected_features <= 0:
+            return series.reshape(1, -1)
+
+        # Plain raw features when small enough to skip time encoding
+        if expected_features <= 4 or series.size >= expected_features:
+            if series.size >= expected_features:
+                return series[-expected_features:].reshape(1, -1)
+
+        lags = max(expected_features - 4, 1)
+
+        if series.size >= lags:
+            lag_values = series[-lags:].astype(float)
+        elif series.size > 0:
+            pad_val = float(series[-1])
+            lag_values = np.concatenate([series.astype(float), np.full(lags - series.size, pad_val)])
+        else:
+            lag_values = np.zeros(lags, dtype=float)
+
+        # Determine timestamp of the next forecast step
+        step_ms = 3_600_000
+        ts_next = None
+        if isinstance(metadata, dict):
+            try:
+                step_ms = int(metadata.get("step", step_ms))
+            except Exception:
+                step_ms = 3_600_000
+            raw_ts = metadata.get("timestamps")
+            if isinstance(raw_ts, list) and raw_ts:
+                try:
+                    ts_next = int(raw_ts[-1]) + step_ms
+                except Exception:
+                    ts_next = None
+
+        if ts_next is None:
+            ts_next = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+        dt = datetime.fromtimestamp(ts_next / 1000, tz=timezone.utc)
+        hour = float(dt.hour)
+        dow = float(dt.weekday())
+        sin_h = np.sin(2 * np.pi * hour / 24.0)
+        cos_h = np.cos(2 * np.pi * hour / 24.0)
+        sin_d = np.sin(2 * np.pi * dow / 7.0)
+        cos_d = np.cos(2 * np.pi * dow / 7.0)
+
+        full = np.concatenate([lag_values, np.array([sin_h, cos_h, sin_d, cos_d])])
+
+        if full.size > expected_features:
+            full = full[-expected_features:]
+        elif full.size < expected_features:
+            full = np.concatenate([full, np.zeros(expected_features - full.size)])
+
+        return full.reshape(1, -1)
+
+    # ------------------------------------------------------------------
+    # Predict
+    # ------------------------------------------------------------------
+
+    def predict(self, input_data: PredictionInput) -> PredictionOutput:
+        """
+        Run linear regression forecast.
+
+        Supports multi-step dict models (one estimator per horizon step)
+        and single sklearn estimators (single-output or multi-output).
+        """
+        self.validate_input(input_data)
+
+        raw_series = np.asarray(input_data.features, dtype=float).reshape(-1)
+        metadata = input_data.metadata or {}
+
+        try:
+            if self.legacy_model is not None:
+                if isinstance(self.legacy_model, dict):
+                    # Multi-step: dict[int, estimator] keyed by step index
+                    step_keys = sorted(self.legacy_model.keys())
+                    first_est = self.legacy_model[step_keys[0]]
+                    expected_features = int(getattr(first_est, "n_features_in_", raw_series.size))
+
+                    predictions: List[float] = []
+                    for step_key in step_keys:
+                        features = self._build_feature_vector(raw_series, expected_features, metadata)
+                        val = float(np.asarray(self.legacy_model[step_key].predict(features)).ravel()[0])
+                        predictions.append(val)
+                    y_pred = np.array(predictions)
+
+                else:
+                    # Single estimator — may return scalar or vector
+                    expected_features = int(getattr(self.legacy_model, "n_features_in_", raw_series.size))
+                    features = self._build_feature_vector(raw_series, expected_features, metadata)
+                    y_pred = np.asarray(self.legacy_model.predict(features), dtype=float).ravel()
+
+            else:
+                # Fallback: linear trend extrapolation
+                output_range = int(metadata.get("output_range", 24))
+                y_pred = self._linear_trend_forecast(raw_series, output_range)
+
+            logger.info("LinearRegression prediction: %d values", len(y_pred))
+
+            return PredictionOutput(
+                predictions=y_pred.tolist(),
+                metadata={"model_type": "lr"},
+            )
+
+        except Exception as exc:
+            logger.error("LinearRegression prediction failed: %s", exc)
+            raise ValueError(f"LinearRegression prediction error: {exc}")
+
+    @staticmethod
+    def _linear_trend_forecast(series: np.ndarray, output_range: int) -> np.ndarray:
+        """Simple linear-trend extrapolation used when no model file is present."""
+        if series.size < 2:
+            last = float(series[-1]) if series.size else 0.0
+            return np.full(output_range, last)
+
+        x = np.arange(series.size, dtype=float)
+        coeffs = np.polyfit(x, series, 1)
+        p = np.poly1d(coeffs)
+        future_x = np.arange(series.size, series.size + output_range, dtype=float)
+        return p(future_x)
+
+    def train(self, train_data: List[float], timestamps: Optional[List[str]] = None) -> None:
+        """Linear regression models are trained offline in notebooks; this is a no-op."""
+        logger.info("LinearRegressionAdapter: training is offline-only (%d pts provided)", len(train_data))
+
+
+class WindAdapter(BaseModel):
+    """
+    Адаптер для прогнозирования генерации ветровой электростанции.
+
+    Использует XGBoost-модель (тот же формат бандла, что и SolarAdapter:
+    манифест ``xgb_model.json`` + пошаговые бустеры), но строит вектор
+    признаков с учётом метеорологических данных ветра из источника ``weather``.
+
+    Структура вектора признаков (должна совпадать с обучением):
+        [lag_1, ..., lag_k,
+         wind_speed,                        ← скорость ветра (км/ч или м/с — как в обучении)
+         wind_dir_sin, wind_dir_cos,        ← круговое кодирование направления ветра (°)
+         temperature,                       ← температура воздуха (°C)
+         sin_hour, cos_hour,                ← цикличное время суток
+         sin_doy,  cos_doy]                 ← цикличный день года
+
+    Количество лагов вычисляется как:
+        k = booster.num_features() - N_WEATHER_FEATURES - N_TIME_FEATURES
+
+    Если модель не загружена, используется нативный fallback:
+    масштабирование последнего ненулевого значения генерации по кубическому
+    закону мощности ветра (P ∝ v³) относительно среднего ветра в истории.
+
+    Пример cache_config.json:
+        см. docs/examples/wind_cache_config.json
+    """
+
+    # Weather feature order must match training pipeline.
+    # wind_direction is encoded as (sin, cos) → 2 values, so N_WEATHER_FEATURES = 4.
+    _WIND_SPEED_KEY: str = "wind_speed"
+    _WIND_DIR_KEY: str = "wind_direction"
+    _TEMPERATURE_KEY: str = "temperature"
+    N_WEATHER_FEATURES: int = 4   # wind_speed, wind_dir_sin, wind_dir_cos, temperature
+    N_TIME_FEATURES: int = 4      # sin_h, cos_h, sin_doy, cos_doy
+
+    def __init__(self, model_name: str = "wind_model", legacy_model: Optional[Any] = None):
+        """
+        Args:
+            model_name: Имя модели.
+            legacy_model: Загруженный dict[int, xgb.Booster] или одиночный Booster.
+        """
+        super().__init__(model_name)
+        self.legacy_model = legacy_model
+        self.model = legacy_model if legacy_model is not None else self
+
+    def load(self) -> None:
+        self.model = self.legacy_model if self.legacy_model is not None else self
+
+    # ------------------------------------------------------------------
+    # Feature engineering
+    # ------------------------------------------------------------------
+
+    def _extract_weather_at_step(
+        self,
+        weather_data: Optional[Dict[str, Any]],
+        step_index: int,
+    ) -> np.ndarray:
+        """
+        Return weather feature array
+        [wind_speed, wind_dir_sin, wind_dir_cos, temperature]
+        for forecast step *i*.
+
+        wind_direction (degrees 0-360) is encoded as sin/cos so that
+        the boundary 0°/360° is handled correctly.
+        """
+        defaults = np.zeros(self.N_WEATHER_FEATURES, dtype=float)
+        if not isinstance(weather_data, dict):
+            return defaults
+        hourly = weather_data.get("hourly")
+        if not isinstance(hourly, list) or step_index >= len(hourly):
+            return defaults
+        entry = hourly[step_index]
+        if not isinstance(entry, dict):
+            return defaults
+
+        wind_speed = float(entry.get(self._WIND_SPEED_KEY) or 0.0)
+        wind_dir_deg = float(entry.get(self._WIND_DIR_KEY) or 0.0)
+        temperature = float(entry.get(self._TEMPERATURE_KEY) or 0.0)
+
+        wind_rad = np.deg2rad(wind_dir_deg)
+        wind_dir_sin = np.sin(wind_rad)
+        wind_dir_cos = np.cos(wind_rad)
+
+        return np.array(
+            [wind_speed, wind_dir_sin, wind_dir_cos, temperature],
+            dtype=float,
+        )
+
+    @staticmethod
+    def _cyclic_time_features(forecast_ts_ms: int) -> np.ndarray:
+        """Return [sin_hour, cos_hour, sin_doy, cos_doy] for the given ms timestamp."""
+        dt = datetime.fromtimestamp(forecast_ts_ms / 1000, tz=timezone.utc)
+        hour = float(dt.hour) + float(dt.minute) / 60.0
+        doy = float(dt.timetuple().tm_yday)
+        return np.array(
+            [
+                np.sin(2 * np.pi * hour / 24.0),
+                np.cos(2 * np.pi * hour / 24.0),
+                np.sin(2 * np.pi * doy / 365.0),
+                np.cos(2 * np.pi * doy / 365.0),
+            ],
+            dtype=float,
+        )
+
+    def _build_feature_row(
+        self,
+        series: np.ndarray,
+        step_index: int,
+        forecast_ts_ms: int,
+        weather_data: Optional[Dict[str, Any]],
+        expected_features: int,
+    ) -> np.ndarray:
+        """
+        Build one feature row for a single forecast step.
+
+        Layout: [lags..., weather(4), time(4)]
+        """
+        n_fixed = self.N_WEATHER_FEATURES + self.N_TIME_FEATURES
+        lags = max(expected_features - n_fixed, 1)
+
+        if series.size >= lags:
+            lag_values = series[-lags:].astype(float)
+        elif series.size > 0:
+            pad_val = float(series[-1])
+            lag_values = np.concatenate(
+                [series.astype(float), np.full(lags - series.size, pad_val)]
+            )
+        else:
+            lag_values = np.zeros(lags, dtype=float)
+
+        weather_vec = self._extract_weather_at_step(weather_data, step_index)
+        time_vec = self._cyclic_time_features(forecast_ts_ms)
+
+        row = np.concatenate([lag_values, weather_vec, time_vec])
+
+        # Align to exact expected_features (safety pad/trim)
+        if row.size > expected_features:
+            row = row[-expected_features:]
+        elif row.size < expected_features:
+            row = np.concatenate([row, np.zeros(expected_features - row.size)])
+
+        return row.reshape(1, -1)
+
+    # ------------------------------------------------------------------
+    # Predict
+    # ------------------------------------------------------------------
+
+    def predict(self, input_data: PredictionInput) -> PredictionOutput:
+        """
+        Run wind generation forecast.
+
+        Extracts weather features from ``input_data.metadata["weather_data"]``
+        (list of hourly dicts from the weather source) and combines them with
+        historical generation lags and cyclic time features.
+        """
+        self.validate_input(input_data)
+
+        raw_series = np.asarray(input_data.features, dtype=float).reshape(-1)
+        metadata = input_data.metadata or {}
+        weather_data: Optional[Dict[str, Any]] = metadata.get("weather_data")
+        step_ms = int(metadata.get("step", 3_600_000))
+        output_range = int(metadata.get("output_range", 24))
+
+        raw_ts = metadata.get("timestamps")
+        if isinstance(raw_ts, list) and raw_ts:
+            base_ts = int(raw_ts[-1]) + step_ms
+        else:
+            base_ts = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+        try:
+            if self.legacy_model is not None:
+                import xgboost as xgb
+
+                if isinstance(self.legacy_model, dict):
+                    step_keys = sorted(self.legacy_model.keys())
+                    first_booster = self.legacy_model[step_keys[0]]
+                    expected_features = int(first_booster.num_features())
+
+                    predictions: List[float] = []
+                    for i, step_key in enumerate(step_keys):
+                        forecast_ts = base_ts + i * step_ms
+                        row = self._build_feature_row(
+                            raw_series, i, forecast_ts, weather_data, expected_features
+                        )
+                        dmatrix = xgb.DMatrix(row)
+                        val = float(self.legacy_model[step_key].predict(dmatrix)[0])
+                        predictions.append(max(val, 0.0))
+                    y_pred = np.array(predictions)
+
+                elif isinstance(self.legacy_model, xgb.Booster):
+                    expected_features = int(self.legacy_model.num_features())
+                    predictions = []
+                    for i in range(output_range):
+                        forecast_ts = base_ts + i * step_ms
+                        row = self._build_feature_row(
+                            raw_series, i, forecast_ts, weather_data, expected_features
+                        )
+                        dmatrix = xgb.DMatrix(row)
+                        val = float(self.legacy_model.predict(dmatrix)[0])
+                        predictions.append(max(val, 0.0))
+                    y_pred = np.array(predictions)
+
+                else:
+                    # XGBRegressor / sklearn pipeline
+                    n_feat = int(getattr(self.legacy_model, "n_features_in_", len(raw_series)))
+                    predictions = []
+                    for i in range(output_range):
+                        forecast_ts = base_ts + i * step_ms
+                        row = self._build_feature_row(
+                            raw_series, i, forecast_ts, weather_data, n_feat
+                        )
+                        val = float(self.legacy_model.predict(row)[0])
+                        predictions.append(max(val, 0.0))
+                    y_pred = np.array(predictions)
+
+            else:
+                # No model file — wind-speed-scaled naive fallback
+                y_pred = self._wind_power_naive(raw_series, weather_data, output_range)
+
+            logger.info(
+                "Wind prediction: %d values, weather=%s",
+                len(y_pred),
+                "yes" if weather_data is not None else "no",
+            )
+
+            return PredictionOutput(
+                predictions=y_pred.tolist(),
+                metadata={
+                    "model_type": "wind",
+                    "weather_used": weather_data is not None,
+                    "output_range": output_range,
+                },
+            )
+
+        except Exception as exc:
+            logger.error("Wind prediction failed: %s", exc)
+            raise ValueError(f"Wind prediction error: {exc}")
+
+    def _wind_power_naive(
+        self,
+        series: np.ndarray,
+        weather_data: Optional[Dict[str, Any]],
+        output_range: int,
+    ) -> np.ndarray:
+        """
+        Fallback when no model is loaded.
+
+        Estimates generation using the cubic wind power law:
+            P_forecast ≈ P_ref × (v_forecast / v_ref)³
+
+        where P_ref is the last non-zero observed generation value and
+        v_ref is the mean wind speed over the recent history from the
+        weather payload (or 1.0 if unavailable, yielding a naive repeat).
+
+        Predictions are clipped to [0, max_observed] to avoid extrapolation.
+        """
+        nonzero = series[series > 0]
+        last_gen = float(nonzero[-1]) if nonzero.size > 0 else 0.0
+        max_gen = float(series.max()) if series.size > 0 else 0.0
+
+        # Estimate reference wind speed from the tail of historical hourly data
+        # (the weather payload's hourly list starts at the current hour, so we
+        # can't directly read "past" wind — use last_gen as the reference instead
+        # and scale relative to forecast wind speed with a nominal reference of 10 m/s).
+        NOMINAL_WIND_REF_KPH = 10.0
+
+        predictions: List[float] = []
+        for i in range(output_range):
+            if isinstance(weather_data, dict):
+                hourly = weather_data.get("hourly")
+                if isinstance(hourly, list) and i < len(hourly):
+                    entry = hourly[i]
+                    v_forecast = float((entry or {}).get(self._WIND_SPEED_KEY, 0.0) or 0.0)
+                    # Cubic law, capped at max observed generation
+                    scale = min((v_forecast / NOMINAL_WIND_REF_KPH) ** 3, 1.0)
+                    predictions.append(min(last_gen * scale, max_gen))
+                    continue
+            predictions.append(np.nan)
+
+        return np.array(predictions, dtype=float)
+
+    def train(self, train_data: List[float], timestamps: Optional[List[str]] = None) -> None:
+        """Wind models are trained offline in notebooks; this is a no-op."""
+        logger.info("WindAdapter: training is offline-only (%d pts provided)", len(train_data))
+
+
 class NaiveAdapter(BaseModel):
     """
     Наивный алгоритм прогнозирования.

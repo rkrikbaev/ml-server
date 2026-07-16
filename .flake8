@@ -1,2 +1,7 @@
 [flake8]
-ignore = E501, E701
+# E501/E701: existing project overrides
+# E203: whitespace before ':' in numpy slice notation (e.g. arr[i+1:j])
+# E226: missing whitespace around arithmetic operator (numpy-style)
+# E221/E241: aligned assignments and dict literals (column-alignment style)
+# W503/W504: line break position — mutually exclusive, suppress both
+ignore = E501, E701, E203, E226, E221, E241, W503, W504

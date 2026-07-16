@@ -2,8 +2,18 @@
 # 2026.03.12, 11:21 AM
 
 
+import sys
 from typing import List, Dict, Any, Optional
-from enum import IntEnum, StrEnum
+from enum import IntEnum
+
+# StrEnum was added in Python 3.11; provide a backport for 3.10.
+if sys.version_info >= (3, 11):
+    from enum import StrEnum  # noqa: F401
+else:
+    from enum import Enum
+
+    class StrEnum(str, Enum):  # type: ignore[no-redef]
+        """Minimal StrEnum backport for Python < 3.11."""
 
 from fastapi import status
 from fastapi.responses import JSONResponse

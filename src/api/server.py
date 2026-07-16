@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError, HTTPException
 from api.utils import get_fields
 from .broker import broker, api_predict
 from .data import PredictCreateSchema
+from .data_quality.router import router as data_quality_router
 from adapters import load_model_config
 from .message import HTTPState, HTTPMessages
 from .task_monitor import get_task, list_tasks, record_task_created, record_task_done, record_task_processing, get_models_analytics, get_model_runs
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
     await broker.shutdown()
 
 app = FastAPI(lifespan=lifespan)
+app.include_router(data_quality_router)
 messages = HTTPMessages()
 UI_DIR = Path(__file__).resolve().parent / "ui"
 

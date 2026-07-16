@@ -1,6 +1,6 @@
 
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 from numpy import maximum, isnan, array
 import numpy as np
 
@@ -14,6 +14,8 @@ from adapters import (
     load_model_config,
     get_model_provider,
 )
+from lib.pipeline import AssessRequest, DataQualityPipeline
+
 logger = logging.getLogger(__name__)
 
 
@@ -86,6 +88,104 @@ def _compute_model_confidence(
     confidence -= (1.0 - valid_ratio) * 0.50
 
     return round(float(np.clip(confidence, 0.0, 1.0)), 4)
+
+
+def _assess_data_quality(
+    archives: List[str],
+    timestamps: List[np.ndarray],
+    values: List[np.ndarray],
+    step_ms: int,
+) -> Optional[Dict[str, Any]]:
+    """
+    Run the data quality pipeline on model input data and return a compact summary.
+
+    Parameters
+    ----------
+    archives    : SCADA archive names, same order as timestamps/values lists.
+    timestamps  : Per-archive timestamp arrays (milliseconds).
+    values      : Per-archive value arrays.
+    step_ms     : Time step in milliseconds.
+
+    Returns a dict ready to embed in the prediction response, or None on error.
+    """
+    try:
+        step_s = step_ms // 1000
+
+        # Reconstruct raw_payloads from model-data arrays
+        raw_payloads: Dict[str, List] = {}
+        for archive, ts_arr, val_arr in zip(archives, timestamps, values):
+            raw_payloads[archive] = [
+                [int(ts), float(v)]
+                for ts, v in zip(ts_arr.tolist(), val_arr.tolist())
+            ]
+
+        # Derive the assessment window from the actual data
+        all_ts = np.concatenate([ts for ts in timestamps if len(ts)])
+        if all_ts.size == 0:
+            return None
+        from_ms = int(all_ts.min())
+        to_ms   = int(all_ts.max())
+
+        req = AssessRequest(
+            **{"from": from_ms},
+            object_ref=archives if len(archives) > 1 else archives[0],
+            to=to_ms,
+            step=step_s,
+            allow_look_ahead=True,
+        )
+        result = DataQualityPipeline(req).run(raw_payloads)
+
+        ms = result.metrics_scoring
+        md = result.metadata
+
+        tag_summary = {
+            tag_id: {
+                "quality_score":        st.quality_score,
+                "total_expected_points": st.total_expected_points,
+                "missing_points_count": st.missing_points_count,
+                "duplicates_count":     st.duplicates_count,
+                "outliers_count":       st.outliers_count,
+                "stuck_sequences_count": st.stuck_sequences_count,
+                "rate_of_change_count": st.rate_of_change_count,
+                "long_gaps_count":      st.long_gaps_count,
+            }
+            for tag_id, st in ms.tags.items()
+        }
+
+        summary = {
+            "overall_quality_score": ms.overall_quality_score,
+            "window_start":    md.timestamp_start,
+            "window_end":      md.timestamp_end,
+            "elapsed_seconds": md.elapsed_seconds,
+            "anomalies_count": len(result.anomalies_log),
+            "tags":            tag_summary,
+        }
+
+        logger.info(
+            "Data quality assessment: score=%.1f anomalies=%d tags=%d elapsed=%.3fs",
+            ms.overall_quality_score,
+            len(result.anomalies_log),
+            len(ms.tags),
+            md.elapsed_seconds,
+        )
+        for tag_id, st in ms.tags.items():
+            logger.debug(
+                "  %s: score=%.1f miss=%d dup=%d spikes=%d stuck=%d roc=%d long_gaps=%d",
+                tag_id,
+                st.quality_score,
+                st.missing_points_count,
+                st.duplicates_count,
+                st.outliers_count,
+                st.stuck_sequences_count,
+                st.rate_of_change_count,
+                st.long_gaps_count,
+            )
+
+        return summary
+
+    except Exception as exc:
+        logger.warning("Data quality assessment failed (non-fatal): %s", exc)
+        return None
 
 
 async def _get_weather_payload(
@@ -235,6 +335,14 @@ async def logic(
         if not timestamp or not value or len(timestamp[0]) == 0:
             return HTTPMessages.model_launch_aborted_no_data()
 
+        # --- Data quality assessment ---
+        dq_summary = _assess_data_quality(
+            archives=config.archives,
+            timestamps=timestamp,
+            values=value,
+            step_ms=step,
+        )
+
         # --- Model initialization ---
         model = init_model(model_source, step, config.use_dynamic_normalization, config.fallback, config.model_type)
 
@@ -296,6 +404,7 @@ async def logic(
                 # planned_applied_count,
                 mlflow_model_name,
                 mlflow_model_version,
+                dq_summary,
             )
         )
 
@@ -314,6 +423,7 @@ def _build_result(
     # planned_applied_count: int,
     mlflow_model_name: Optional[str] = None,
     mlflow_model_version: Optional[str] = None,
+    data_quality: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Build the final forecast result payload.
@@ -358,5 +468,8 @@ def _build_result(
             "name": mlflow_model_name,
             "version": mlflow_model_version,
         }
+
+    if data_quality is not None:
+        result["data_quality"] = data_quality
 
     return result

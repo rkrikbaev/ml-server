@@ -285,7 +285,7 @@ async def validate_weather_service() -> bool:
     try:
         client = get_weather_client()
         health = await client.get_healthz()
-        return health.get("status") == "healthy"
+        return health.get("status") in {"ok", "degraded"}
     except Exception as e:
         logger.warning(f"Weather service health check failed: {e}")
         return False
